@@ -16,7 +16,7 @@ LeaveDesk is an employee leave-management app, built step by step during the AYP
 
 ```bash
 # 1. Download the project
-git clone https://github.com/<your-username>/leavedesk.git
+git clone https://github.com/rithu-23/leavedesk.git
 cd leavedesk
 
 # 2. Create and switch on a virtual environment (a private Python for this project)
