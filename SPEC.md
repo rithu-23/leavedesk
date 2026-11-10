@@ -270,3 +270,95 @@ Each leave type enforces its own rule.
 |---|---|---|---|
 | AC-11.1 *(happy path)* | — | Any LeaveService action succeeds | A log line records the action name, the request id, `success`, and the duration in milliseconds |
 | AC-11.2 | — | A LeaveService action raises an error | A log line records the action name, `failed`, and the error name; the error still reaches the caller |
+
+---
+
+## 8. Error catalogue
+
+All LeaveDesk errors inherit from one base error, `LeaveDeskError`, so callers can catch one specific error or all of them at once.
+
+| Error | Raised by | When | Planned HTTP status (Capstone 2) |
+|---|---|---|---|
+| `ValidationError` *(from Pydantic)* | Models | Input is badly formed (section 9.2) | 422 |
+| `InvalidLeaveRequestError` | Policies, LeaveService | The request or action breaks a rule: no working days, policy rule (BR-3), half day on a weekend, rejection without a note | 422 |
+| `InsufficientBalanceError` | LeaveService | `available` is less than the days requested (BR-4) | 422 |
+| `OverlappingLeaveError` | LeaveService | The dates overlap a pending or approved request (BR-5) | 409 |
+| `InvalidTransitionError` | LeaveService | The status change is not allowed (BR-6) | 409 |
+| `NotAuthorisedError` | LeaveService | The person is not allowed to take this action (BR-6) | 403 |
+| `NotFoundError` | Repository, LeaveService | An employee or request id does not exist | 404 |
+
+---
+
+## 9. Edge cases and validation rules
+
+### 9.1 Edge cases
+The first five are required by the capstone and must appear in the demo.
+
+| ID | Edge case | Expected result | Criteria |
+|---|---|---|---|
+| **EC-1** | End date before start date | `ValidationError` | AC-2.1 |
+| **EC-2** | Weekends inside a date range | Weekend days are not counted | AC-1.2 |
+| **EC-3** | Overlapping requests | `OverlappingLeaveError` | AC-4.1 |
+| **EC-4** | Insufficient balance | `InsufficientBalanceError` | AC-5.1, AC-5.2 |
+| **EC-5** | Half-day leave | Counts as 0.5 days; across two dates gives `ValidationError` | AC-1.3, AC-2.3 |
+| EC-6 | Request covering only a weekend | `InvalidLeaveRequestError` | AC-1.4 |
+| EC-7 | Half day on a Saturday or Sunday | `InvalidLeaveRequestError` | BR-2 |
+| EC-8 | Annual leave in the past | `InvalidLeaveRequestError` | AC-3.1 |
+| EC-9 | Sick leave exactly 7 days back vs 10 days back | Accepted vs `InvalidLeaveRequestError` | AC-3.2, AC-3.3 |
+| EC-10 | Casual leave over 2 days | `InvalidLeaveRequestError` | AC-3.4 |
+| EC-11 | Approval by someone who is not the requester's manager | `NotAuthorisedError` | AC-6.2 |
+| EC-12 | Approving an already approved request | `InvalidTransitionError` | AC-6.3 |
+| EC-13 | Rejecting without a note | `InvalidLeaveRequestError` | AC-7.2 |
+| EC-14 | Cancelling an approved request | `InvalidTransitionError` | AC-8.3 |
+| EC-15 | A notifier fails while sending | Action still succeeds; failure logged | AC-9.4 |
+| EC-16 | Acting on a request id that does not exist | `NotFoundError` | Section 8 |
+
+### 9.2 Validation rules (checked by the Pydantic models)
+| Entity | Field | Rule |
+|---|---|---|
+| Employee | `id` | Not empty |
+| Employee | `name` | 1–100 characters after trimming spaces |
+| Employee | `email` | Matches `name@domain.tld` |
+| Employee | `role` | `employee` or `manager` |
+| LeaveRequest | `leave_type` | `ANNUAL`, `SICK` or `CASUAL` |
+| LeaveRequest | `end_date` | Not before `start_date` |
+| LeaveRequest | `half_day` | Only when `start_date` equals `end_date` |
+| LeaveRequest | `reason` | 10–500 characters after trimming spaces |
+| LeaveRequest | `status` | `pending`, `approved`, `rejected` or `cancelled` |
+
+Rules that need other data (balance, overlap, policies, who may act) are checked by LeaveService, not by the models.
+
+---
+
+## 10. Task breakdown
+
+| Task | What | Implements | File in `leavedesk/domain/` | Branch |
+|---|---|---|---|---|
+| T1 | Write this specification | All | `SPEC.md` (project root) | `docs/spec` |
+| T2 | Custom exceptions with a `LeaveDeskError` base | Section 8 | `exceptions.py` | `feature/domain-models` |
+| T3 | Pydantic models: Employee, LeaveRequest, Notification and enums, with validators | FR-2, section 9.2 | `models.py` | `feature/domain-models` |
+| T4 | Working-day count and overlap check | BR-2, BR-5, FR-1, FR-4 | `dates.py` | `feature/domain-models` |
+| T5 | `LeaveBalance` dataclass with `available` | BR-4, FR-5, FR-10 | `balance.py` | `feature/policies-service` |
+| T6 | Abstract `LeavePolicy` with Annual, Sick and Casual subclasses | BR-3, FR-3 | `policies.py` | `feature/policies-service` |
+| T7 | Repository interface and in-memory repository | Section 2.1 | `repository.py` | `feature/policies-service` |
+| T8 | `@audit` decorator and timing context manager | BR-8, FR-11 | `instrumentation.py` | `feature/policies-service` |
+| T9 | `LeaveService`: apply, approve, reject, cancel, get balances | FR-1, FR-4 to FR-8, FR-10 | `service.py` | `feature/policies-service` |
+| T10 | Abstract `Notifier` with `EmailNotifier` (stub) and `InAppNotifier` | BR-7, FR-9 | `notifications.py` | `feature/notifications` |
+| T11 | LeaveService sends notifications concurrently with `asyncio.gather` | BR-7, FR-9 | `service.py` | `feature/notifications` |
+| T12 | Demo script: happy path, EC-1 to EC-5 and the other edge cases | Section 11 | `leavedesk/demo.py` | `feature/demo` |
+| T13 | pytest tests for the acceptance criteria | All FRs | `tests/` | `feature/demo` |
+
+---
+
+## 11. Definition of done (Capstone 1)
+- `python -m leavedesk.demo` runs the happy path and all five required edge cases (EC-1 to EC-5), each failure raising the error named in this spec.
+- Every acceptance criterion in section 7 is shown by the demo or a test.
+- Work merged through pull requests with review comments; one merge conflict created and resolved in the history.
+- `requirements.txt` and a README with venv setup steps are in the repository.
+
+---
+
+## 12. Change log
+| Version | Date | Change |
+|---|---|---|
+| 1.0 | 2026-11-10 | Initial specification for Capstone 1 |
