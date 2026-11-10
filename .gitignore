@@ -1,0 +1,9 @@
+#List of cache files and directories not pushed to git
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+.DS_Store
+.idea/

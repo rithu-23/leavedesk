@@ -1,0 +1,1 @@
+"""LeaveDesk: an employee leave-management application."""
