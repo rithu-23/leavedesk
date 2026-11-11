@@ -49,6 +49,7 @@ The demo runs the normal leave flow (apply, approve, notify) and every edge case
 | `leavedesk/domain/notifications.py` | Notifier classes and concurrent sending |
 | `leavedesk/domain/service.py` | `LeaveService`: apply, approve, reject, cancel |
 | `leavedesk/demo.py` | Runs the full flow and all edge cases |
+| `tests/` | pytest tests for the acceptance criteria |
 | `SPEC.md` | Specification and acceptance criteria |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
 | `requirements.txt` | Exact library versions |
