@@ -39,10 +39,19 @@ The demo runs the normal leave flow (apply, approve, notify) and every edge case
 
 ```
 leavedesk/
-├── leavedesk/          Python package
-│   ├── domain/         business rules: models, policies, service, notifications
-│   └── demo.py         runs the full flow and all edge cases
-├── SPEC.md             specification and acceptance criteria
-├── AI_NOTES.md         log of AI assistance and what was checked or fixed
-└── requirements.txt    exact library versions
+├── leavedesk/                   Python package
+│   ├── domain/                  business rules (no web framework, no database)
+│   │   ├── exceptions.py        custom errors: LeaveDeskError and its subclasses
+│   │   ├── models.py            Pydantic models and enums
+│   │   ├── dates.py             working-day count and overlap check
+│   │   ├── balance.py           LeaveBalance dataclass
+│   │   ├── policies.py          abstract LeavePolicy and leave-type policies
+│   │   ├── repository.py        storage interface and in-memory store
+│   │   ├── instrumentation.py   @audit decorator and timing context manager
+│   │   ├── notifications.py     Notifier classes and concurrent sending
+│   │   └── service.py           LeaveService: apply, approve, reject, cancel
+│   └── demo.py                  runs the full flow and all edge cases
+├── SPEC.md                      specification and acceptance criteria
+├── AI_NOTES.md                  log of AI assistance and what was checked or fixed
+└── requirements.txt             exact library versions
 ```

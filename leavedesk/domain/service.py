@@ -1,14 +1,15 @@
-"""LeaveService: the leave workflow (FR-1, FR-4 to FR-8, FR-10).
+"""LeaveService: the leave workflow (FR-1, FR-4 to FR-9, FR-10).
 
-LeaveService is composed of a repository, one policy per leave type and a
-clock (dependency injection). It depends only on the LeaveRepository
-interface, so storage can change in Capstone 3 without changing these rules.
+LeaveService is composed of a repository, one policy per leave type, a list of
+notifiers and a clock (dependency injection). It depends only on the
+LeaveRepository interface, so storage can change in Capstone 3 without
+changing these rules.
 
 Every check runs before anything is saved, so a failed action leaves no
-partial changes behind.
+partial changes behind. Notifications are sent last, after the change is saved.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 
 from leavedesk.domain.balance import LeaveBalance, default_balances
@@ -28,6 +29,7 @@ from leavedesk.domain.models import (
     Notification,
     NotificationEvent,
 )
+from leavedesk.domain.notifications import Notifier, send_all
 from leavedesk.domain.policies import LeavePolicy
 from leavedesk.domain.repository import LeaveRepository
 
@@ -39,10 +41,12 @@ class LeaveService:
         self,
         repository: LeaveRepository,
         policies: Mapping[LeaveType, LeavePolicy],
+        notifiers: Sequence[Notifier] = (),
         clock: Callable[[], date] = date.today,
     ) -> None:
         self._repo = repository
         self._policies = policies
+        self._notifiers = notifiers
         self._clock = clock
 
     # ------------------------------------------------------------------ setup
@@ -67,7 +71,7 @@ class LeaveService:
         reason: str,
         half_day: bool = False,
     ) -> LeaveRequest:
-        """Submit a leave request (FR-1 to FR-5)."""
+        """Submit a leave request (FR-1 to FR-5, FR-9)."""
         employee = self._repo.get_employee(employee_id)
         request = LeaveRequest(  # Pydantic checks the input here (FR-2)
             employee_id=employee.id,
@@ -108,12 +112,12 @@ class LeaveService:
                     message=f"{employee.name} requested {days} day(s) of {self._describe(request)}.",
                 )
             )
-        self._emit(notices)
+        await self._emit(notices)
         return request
 
     @audit
     async def approve(self, request_id: str, approver_id: str) -> LeaveRequest:
-        """Approve a pending request (FR-6)."""
+        """Approve a pending request (FR-6, FR-9)."""
         request, employee = self._load(request_id)
         self._ensure_manager_of(approver_id, employee)
         self._ensure_pending(request, "approve")
@@ -125,7 +129,7 @@ class LeaveService:
 
         self._repo.save_request(request)
         self._repo.save_balance(balance)
-        self._emit([
+        await self._emit([
             Notification(
                 recipient_id=employee.id,
                 event=NotificationEvent.APPROVED,
@@ -135,8 +139,10 @@ class LeaveService:
         return request
 
     @audit
-    async def reject(self, request_id: str, approver_id: str, note: str | None = None) -> LeaveRequest:
-        """Reject a pending request; a reason is required (FR-7)."""
+    async def reject(
+        self, request_id: str, approver_id: str, note: str | None = None
+    ) -> LeaveRequest:
+        """Reject a pending request; a reason is required (FR-7, FR-9)."""
         request, employee = self._load(request_id)
         self._ensure_manager_of(approver_id, employee)
         self._ensure_pending(request, "reject")
@@ -151,18 +157,21 @@ class LeaveService:
 
         self._repo.save_request(request)
         self._repo.save_balance(balance)
-        self._emit([
+        await self._emit([
             Notification(
                 recipient_id=employee.id,
                 event=NotificationEvent.REJECTED,
-                message=f"Your request for {self._describe(request)} was rejected: {request.decision_note}",
+                message=(
+                    f"Your request for {self._describe(request)} was rejected: "
+                    f"{request.decision_note}"
+                ),
             )
         ])
         return request
 
     @audit
     async def cancel(self, request_id: str, employee_id: str) -> LeaveRequest:
-        """Cancel your own pending request (FR-8)."""
+        """Cancel your own pending request (FR-8, FR-9)."""
         request, employee = self._load(request_id)
         if request.employee_id != employee_id:
             raise NotAuthorisedError("Only the employee who made the request can cancel it (BR-6).")
@@ -175,7 +184,7 @@ class LeaveService:
         self._repo.save_request(request)
         self._repo.save_balance(balance)
         if employee.manager_id:
-            self._emit([
+            await self._emit([
                 Notification(
                     recipient_id=employee.manager_id,
                     event=NotificationEvent.CANCELLED,
@@ -190,7 +199,9 @@ class LeaveService:
     def get_balances(self, employee_id: str) -> dict[LeaveType, LeaveBalance]:
         """All of an employee's balances, one per leave type (FR-10)."""
         self._repo.get_employee(employee_id)  # raises NotFoundError for unknown ids
-        return {leave_type: self._repo.get_balance(employee_id, leave_type) for leave_type in LeaveType}
+        return {
+            leave_type: self._repo.get_balance(employee_id, leave_type) for leave_type in LeaveType
+        }
 
     def list_notifications(self, recipient_id: str) -> list[Notification]:
         """A person's notifications, newest first."""
@@ -215,10 +226,15 @@ class LeaveService:
         if request.status is not LeaveStatus.PENDING:
             raise InvalidTransitionError(request.status, action)
 
-    def _emit(self, notifications: list[Notification]) -> None:
-        """Store notifications (BR-7). Sending them is added in the notifications task (T11)."""
+    async def _emit(self, notifications: list[Notification]) -> None:
+        """Store notifications, then send them through every notifier concurrently (BR-7).
+
+        send_all never raises: a failed send is logged and counted, so it
+        cannot undo the action that has already been saved (AC-9.4).
+        """
         for notification in notifications:
             self._repo.add_notification(notification)
+        await send_all(notifications, self._notifiers)
 
     @staticmethod
     def _describe(request: LeaveRequest) -> str:
