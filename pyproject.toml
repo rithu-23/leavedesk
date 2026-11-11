@@ -1,0 +1,9 @@
+# Project-wide tool settings. pytest reads the [tool.pytest.ini_options] section.
+# Ruff (Day 2) will add its own [tool.ruff] section here.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]                          # only look for tests in tests/
+pythonpath = ["."]                             # so tests can import the leavedesk package
+asyncio_mode = "auto"                          # run async def tests without extra markers
+asyncio_default_fixture_loop_scope = "function"  # a fresh event loop for every test
+addopts = "-ra"                                # print a short summary of anything not passed
