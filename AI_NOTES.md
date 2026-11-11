@@ -79,3 +79,21 @@
 **Issues caught:**
 1. **Spec gap:** the spec gave starting balances (BR-1) but not when they are created. Added `register_employee` and updated the spec (v1.1 change log).
 2. **Known limitation:** the in-memory repository saves the request and the balance in two separate calls, so a crash between them could leave them out of step. Accepted for Capstone 1; Capstone 3 wraps both in one database transaction.
+
+
+---
+
+## Entry 5 — Notifications (Day 1, tasks T10–T11)
+
+**Prompt:** Implement notifications.py (abstract Notifier, EmailNotifier stub, InAppNotifier, concurrent send_all with asyncio.gather) and connect it to LeaveService so every submit, approve, reject and cancel sends its notifications.
+
+**Generated:** A Notifier ABC using the template method pattern (send = delay + deliver + log), two channels, a send_all function using asyncio.gather with return_exceptions=True, and an async `_emit` in LeaveService that stores and then sends.
+
+**Checked / changed:**
+- Timed 4 sends of 0.2 s: 0.80 s one at a time vs 0.20 s with asyncio.gather (AC-9.2), both standalone and inside `apply`.
+- Checked the recipients for every event against BR-7 (AC-9.1, AC-9.3) and that new notifications arrive unread.
+- With a channel that always fails, the request is still saved as pending, the balance holds 3 days, the failures are logged, and in-app delivery still works (AC-9.4).
+- Checked that every `_emit` call is awaited; a missing `await` would silently skip sending.
+
+**Issues caught:**
+1. **Confusing AI edit instructions:** the step-by-step edit for service.py contradicted itself about where to place the new import, so the import ended up out of alphabetical order and the linter flagged the whole import block. Switched to replacing the complete file, which put the imports in the correct order.
