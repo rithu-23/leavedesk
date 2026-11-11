@@ -51,6 +51,7 @@ leavedesk/
 │   │   ├── notifications.py     Notifier classes and concurrent sending
 │   │   └── service.py           LeaveService: apply, approve, reject, cancel
 │   └── demo.py                  runs the full flow and all edge cases
+├── tests/                       pytest tests for the acceptance criteria
 ├── SPEC.md                      specification and acceptance criteria
 ├── AI_NOTES.md                  log of AI assistance and what was checked or fixed
 └── requirements.txt             exact library versions
