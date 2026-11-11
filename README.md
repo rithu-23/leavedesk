@@ -37,21 +37,18 @@ The demo runs the normal leave flow (apply, approve, notify) and every edge case
 
 ## Project structure
 
-```
-leavedesk/
-├── leavedesk/                   Python package
-│   ├── domain/                  business rules (no web framework, no database)
-│   │   ├── exceptions.py        custom errors: LeaveDeskError and its subclasses
-│   │   ├── models.py            Pydantic models and enums
-│   │   ├── dates.py             working-day count and overlap check
-│   │   ├── balance.py           LeaveBalance dataclass
-│   │   ├── policies.py          abstract LeavePolicy and leave-type policies
-│   │   ├── repository.py        storage interface and in-memory store
-│   │   ├── instrumentation.py   @audit decorator and timing context manager
-│   │   ├── notifications.py     Notifier classes and concurrent sending
-│   │   └── service.py           LeaveService: apply, approve, reject, cancel
-│   └── demo.py                  runs the full flow and all edge cases
-├── SPEC.md                      specification and acceptance criteria
-├── AI_NOTES.md                  log of AI assistance and what was checked or fixed
-└── requirements.txt             exact library versions
-```
+| Path | What it holds |
+|---|---|
+| `leavedesk/domain/exceptions.py` | Custom errors: `LeaveDeskError` and its subclasses |
+| `leavedesk/domain/models.py` | Pydantic models and enums |
+| `leavedesk/domain/dates.py` | Working-day count and overlap check |
+| `leavedesk/domain/balance.py` | `LeaveBalance` dataclass |
+| `leavedesk/domain/policies.py` | Abstract `LeavePolicy` and leave-type policies |
+| `leavedesk/domain/repository.py` | Storage interface and in-memory store |
+| `leavedesk/domain/instrumentation.py` | `@audit` decorator and timing context manager |
+| `leavedesk/domain/notifications.py` | Notifier classes and concurrent sending |
+| `leavedesk/domain/service.py` | `LeaveService`: apply, approve, reject, cancel |
+| `leavedesk/demo.py` | Runs the full flow and all edge cases |
+| `SPEC.md` | Specification and acceptance criteria |
+| `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
+| `requirements.txt` | Exact library versions |
