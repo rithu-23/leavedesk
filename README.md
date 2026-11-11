@@ -33,7 +33,16 @@ pip install -r requirements.txt
 python -m leavedesk.demo
 ```
 
-The demo runs the normal leave flow (apply, approve, notify) and every edge case from the spec, printing the result of each.
+The demo runs the normal leave flow (apply, approve, notify) and every edge case from the spec, printing a ✓ or ✗ for each check. It exits with status 0 when every check passes and 1 otherwise.
+
+## Run the tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+77 tests cover every acceptance criterion and edge case in `SPEC.md`, including the failure paths. Add `-v` to list each test by name.
 
 ## Project structure
 
@@ -52,4 +61,6 @@ The demo runs the normal leave flow (apply, approve, notify) and every edge case
 | `tests/` | pytest tests for the acceptance criteria |
 | `SPEC.md` | Specification and acceptance criteria |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
-| `requirements.txt` | Exact library versions |
+| `requirements.txt` | Exact library versions the app needs |
+| `requirements-dev.txt` | Test tools (pytest, pytest-asyncio) on top of `requirements.txt` |
+| `pyproject.toml` | Tool settings (pytest now, Ruff from Day 2) |

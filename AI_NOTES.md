@@ -97,3 +97,22 @@
 
 **Issues caught:**
 1. **Confusing AI edit instructions:** the step-by-step edit for service.py contradicted itself about where to place the new import, so the import ended up out of alphabetical order and the linter flagged the whole import block. Switched to replacing the complete file, which put the imports in the correct order.
+
+
+---
+
+## Entry 6 — Demo script and pytest tests (Day 1, tasks T12–T13)
+
+**Prompt:** Write `leavedesk/demo.py` that runs the happy path and every SPEC edge case with a ✓/✗ checklist, then a pytest suite covering every acceptance criterion, including failure paths.
+
+**Generated:** A demo with a Checklist helper, a fresh service per edge case, a fixed "today" and a non-zero exit status on failure; pytest configuration in pyproject.toml; requirements-dev.txt; shared fixtures; 77 tests across 7 files.
+
+**Checked / changed:**
+- Ran the demo: 32/32 checks passed, exit status 0. Confirmed EC-1 to EC-5 each raise the error named in SPEC 9.1 (the Capstone 1 "Done when").
+- Ran pytest: 77 passed. Changed one expected value (3 to 4 working days) to confirm a test really fails and reports the values, then changed it back.
+- Checked that failure-path tests also assert nothing changed (for example the balance stays 18 after a refused request).
+- Checked that `except expected` comes before `except Exception` in the demo's `raises()` helper; the other order would mark every correct error as a failure.
+
+**Issues caught:**
+1. **Missing tests went unnoticed until counted:** the first pytest run collected 16 tests instead of 25, because test_models.py had been created but not saved. Caught by comparing the collected count with the expected count. Turned on VS Code Auto Save.
+2. **Known risk:** the concurrency test asserts that 4 sends of 0.2 s finish in under 0.4 s. On a very slow machine this could fail occasionally; the margin is twice the expected time to keep that unlikely.
