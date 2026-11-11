@@ -342,7 +342,7 @@ Rules that need other data (balance, overlap, policies, who may act) are checked
 | T6 | Abstract `LeavePolicy` with Annual, Sick and Casual subclasses | BR-3, FR-3 | `policies.py` | `feature/policies-service` |
 | T7 | Repository interface and in-memory repository | Section 2.1 | `repository.py` | `feature/policies-service` |
 | T8 | `@audit` decorator and timing context manager | BR-8, FR-11 | `instrumentation.py` | `feature/policies-service` |
-| T9 | `LeaveService`: apply, approve, reject, cancel, get balances | FR-1, FR-4 to FR-8, FR-10 | `service.py` | `feature/policies-service` |
+| T9 | `LeaveService`: register employees (creates BR-1 balances), apply, approve, reject, cancel, get balances | BR-1, FR-1, FR-4 to FR-8, FR-10 | `service.py` | `feature/policies-service` |
 | T10 | Abstract `Notifier` with `EmailNotifier` (stub) and `InAppNotifier` | BR-7, FR-9 | `notifications.py` | `feature/notifications` |
 | T11 | LeaveService sends notifications concurrently with `asyncio.gather` | BR-7, FR-9 | `service.py` | `feature/notifications` |
 | T12 | Demo script: happy path, EC-1 to EC-5 and the other edge cases | Section 11 | `leavedesk/demo.py` | `feature/demo` |
@@ -362,3 +362,4 @@ Rules that need other data (balance, overlap, policies, who may act) are checked
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-11-10 | Initial specification for Capstone 1 |
+| 1.1 | 2026-11-11 | T9: employees are registered through LeaveService, which creates their BR-1 balances. Service actions are async so notifications can be sent concurrently in T11. |

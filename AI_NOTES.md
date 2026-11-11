@@ -58,3 +58,24 @@
 
 **Issues caught:**
 1. **Error location for cross-field rules:** the end-date rule is a model-level validator, so Pydantic reports `loc = ()` instead of `('end_date',)`. The message still names end_date, which satisfies AC-2.1. Noted for the Capstone 2 error contract, where clients may need the field name.
+
+
+---
+
+## Entry 4 — Balance, policies, repository, instrumentation, service (Day 1, tasks T5–T9)
+
+**Prompt:** Implement balance.py (dataclass), policies.py (abstract LeavePolicy and subclasses), repository.py (interface and in-memory implementation), instrumentation.py (@audit and timed) and service.py (LeaveService) from the spec.
+
+**Generated:** LeaveBalance with reserve/confirm/release; LeavePolicy ABC using a template method with Annual, Sick and Casual subclasses; LeaveRepository ABC with a deep-copying in-memory implementation; @audit decorator supporting sync and async functions; LeaveService composed of repository, policies and an injected clock.
+
+**Checked / changed:**
+- Ran every BR-4 balance movement (AC-1.1, AC-5.1, AC-5.2, AC-6.1, AC-7.1, AC-8.1, AC-10.1) against LeaveBalance; a failed reserve leaves the balance unchanged.
+- Ran every BR-3 policy criterion (AC-3.1 to AC-3.4, AC-1.4); confirmed exactly 7 days back is accepted (the boundary flagged in the PR #2 review) and that `LeavePolicy()` cannot be created.
+- Confirmed the repository returns copies: a change is invisible until `save_request` is called.
+- Confirmed @audit logs success and failure with duration, keeps the function name (functools.wraps) and re-raises errors (AC-11.2).
+- Ran one end-to-end workflow covering FR-1 and FR-4 to FR-8, FR-10 and EC-16: every failure raised the error named in the spec, and balances were unchanged after each failure.
+- Read service.py for check-then-change order, who-before-what authorisation, and a save after every change.
+
+**Issues caught:**
+1. **Spec gap:** the spec gave starting balances (BR-1) but not when they are created. Added `register_employee` and updated the spec (v1.1 change log).
+2. **Known limitation:** the in-memory repository saves the request and the balance in two separate calls, so a crash between them could leave them out of step. Accepted for Capstone 1; Capstone 3 wraps both in one database transaction.
