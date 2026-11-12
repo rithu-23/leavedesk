@@ -2,65 +2,60 @@
 
 LeaveDesk is an employee leave-management app, built step by step during the AYPOLS Enablement Workshop.
 
-- **Day 1 (current):** a written specification (`SPEC.md`) and a plain-Python domain package with the leave rules. No web framework or database yet.
-- **Day 2:** a tested REST API with FastAPI.
+- **Day 1:** a specification (`SPEC.md`) and a plain-Python domain package with the leave rules.
+- **Day 2 (current):** a tested REST API with FastAPI (`API_SPEC.md`), running in Docker.
 - **Day 3:** storage on PostgreSQL.
 - **Day 4:** an Angular front end.
 
 ## Requirements
 
-- Python 3.12 or newer
-- Git
+- Python 3.12 or newer, Git
+- Docker Desktop (for `docker compose`)
 
-## Setup (macOS / Linux)
+## Quick start with Docker
 
 ```bash
-# 1. Download the project
 git clone https://github.com/rithu-23/leavedesk.git
 cd leavedesk
+cp .env.example .env          # then replace every value in .env
+docker compose up --build
+```
 
-# 2. Create and switch on a virtual environment (a private Python for this project)
+Open http://localhost:8000/docs, click **Authorize** and sign in as `ana@leavedesk.test`,
+`mo@leavedesk.test` (manager) or `lee@leavedesk.test` (manager) with the `DEMO_PASSWORD` from `.env`.
+
+## Local setup (macOS / Linux)
+
+```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-
-# 3. Install the libraries listed in requirements.txt
-pip install -r requirements.txt
-```
-
-## Run the demo
-
-```bash
-python -m leavedesk.demo
-```
-
-The demo runs the normal leave flow (apply, approve, notify) and every edge case from the spec, printing a ✓ or ✗ for each check. It exits with status 0 when every check passes and 1 otherwise.
-
-## Run the tests
-
-```bash
 pip install -r requirements-dev.txt
-python -m pytest
+cp .env.example .env          # then replace every value in .env
 ```
 
-77 tests cover every acceptance criterion and edge case in `SPEC.md`, including the failure paths. Add `-v` to list each test by name.
+| Task | Command |
+|---|---|
+| Run the API with auto-reload | `python -m uvicorn leavedesk.api.main:create_app --factory --reload` |
+| Run the Day 1 demo | `python -m leavedesk.demo` |
+| Run all tests | `python -m pytest` |
+| Lint and format check | `ruff check . && ruff format --check .` |
 
 ## Project structure
 
 | Path | What it holds |
 |---|---|
-| `leavedesk/domain/exceptions.py` | Custom errors: `LeaveDeskError` and its subclasses |
-| `leavedesk/domain/models.py` | Pydantic models and enums |
-| `leavedesk/domain/dates.py` | Working-day count and overlap check |
-| `leavedesk/domain/balance.py` | `LeaveBalance` dataclass |
-| `leavedesk/domain/policies.py` | Abstract `LeavePolicy` and leave-type policies |
-| `leavedesk/domain/repository.py` | Storage interface and in-memory store |
-| `leavedesk/domain/instrumentation.py` | `@audit` decorator and timing context manager |
-| `leavedesk/domain/notifications.py` | Notifier classes and concurrent sending |
-| `leavedesk/domain/service.py` | `LeaveService`: apply, approve, reject, cancel |
-| `leavedesk/demo.py` | Runs the full flow and all edge cases |
-| `tests/` | pytest tests for the acceptance criteria |
-| `SPEC.md` | Specification and acceptance criteria |
+| `leavedesk/domain/` | Business rules: models, exceptions, dates, balance, policies, repository, inbox, audit, notifications, `LeaveService` |
+| `leavedesk/api/main.py` | FastAPI app factory |
+| `leavedesk/api/routes/` | Auth, leave and notification endpoints |
+| `leavedesk/api/security.py` | Argon2id password hashing and JWT tokens |
+| `leavedesk/api/errors.py` | The single error format and exception handlers |
+| `leavedesk/api/middleware.py` | Request ID and request logging |
+| `leavedesk/api/stream.py` | Live notifications over Server-Sent Events |
+| `leavedesk/demo.py` | Day 1 demo of the happy path and every edge case |
+| `tests/` | Domain tests; `tests/api/` holds the API tests |
+| `SPEC.md`, `API_SPEC.md` | Specifications and acceptance criteria |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
-| `requirements.txt` | Exact library versions the app needs |
-| `requirements-dev.txt` | Test tools (pytest, pytest-asyncio) on top of `requirements.txt` |
-| `pyproject.toml` | Tool settings (pytest now, Ruff from Day 2) |
+| `Dockerfile`, `docker-compose.yml` | Container image and the `api` + `db` services |
+| `.env.example` | Every setting the app needs, with placeholder values |
+| `requirements.txt`, `requirements-dev.txt` | Runtime libraries; test and lint tools |
+| `pyproject.toml` | pytest and Ruff settings |

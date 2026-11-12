@@ -1,0 +1,27 @@
+# docker compose up --build    then open http://localhost:8000/docs
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env            # JWT_SECRET, DEMO_PASSWORD, ... read at run time, never baked into the image
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17        # pinned major version; used by the API from Capstone 3
+    environment:
+      POSTGRES_DB: leavedesk
+      POSTGRES_USER: leavedesk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leavedesk -d leavedesk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

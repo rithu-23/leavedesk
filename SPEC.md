@@ -363,3 +363,4 @@ Rules that need other data (balance, overlap, policies, who may act) are checked
 |---|---|---|
 | 1.0 | 2026-11-10 | Initial specification for Capstone 1 |
 | 1.1 | 2026-11-11 | T9: employees are registered through LeaveService, which creates their BR-1 balances. Service actions are async so notifications can be sent concurrently in T11. |
+| 1.2 | 2026-11-12 | Capstone 2: repository gained `get_notification`, `save_notification` and `list_employees`; new `Inbox` (list unread first, mark read, mark all read). Leave rules unchanged. |

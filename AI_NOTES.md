@@ -138,3 +138,21 @@
 3. **Browser limitation found while specifying the stream:** EventSource cannot send an Authorization header, so the stream also accepts `?access_token=`. To stop tokens reaching logs, the middleware logs the path without the query string.
 4. **Deprecation warning:** Starlette warns that its TestClient is moving from httpx to httpx2. Filtered that single warning in pyproject.toml so test output stays clean; follow-up: switch to httpx2 once FastAPI's TestClient supports it.
 5. **Files missing from the pushed branch:** a typo in `.env.example`'s file name made one `git add` command fail completely, so `inbox.py` and `.env.example` were never committed although tests passed locally. Caught by reading `git status` after pushing; confirmed fixed by cloning the branch into a fresh folder and running the full test suite there.
+
+
+---
+
+## Entry 8 — Docker and Docker Compose (Capstone 2, task A12)
+
+**Prompt:** Write a Dockerfile for the API and a docker-compose.yml with api and db (PostgreSQL) services so that `docker compose up` serves Swagger at /docs on a clean machine.
+
+**Generated:** Dockerfile (python:3.12-slim, non-root user, health check), .dockerignore, docker-compose.yml (api + postgres:17 with a health check and a named volume), POSTGRES_PASSWORD in .env.example, README quick start.
+
+**Checked / changed:**
+- Both containers report healthy; `/health` returns ok; Swagger login works with the demo users.
+- Inside the container: /app holds only `leavedesk` and `requirements.txt` (no `.env`, no `tests`), and the process runs as `appuser`, not root.
+- `docker compose down -v` then `up --build` (no cached database) works, simulating a clean machine.
+
+**Issues caught:**
+1. **Missing .dockerignore:** the build log showed `.dockerignore` transferring only 2 bytes: the file had not been created, and the failed `git add` also meant nothing was committed (GitHub rejected the PR with "No commits between main and feature/docker"). The image itself was safe, because the Dockerfile copies only `requirements.txt` and `leavedesk/`, but `.env` was still being sent to Docker as part of the build context. Created `.dockerignore` and confirmed the build context step now reads it.
+2. **Unpinned database image:** `postgres` (latest) can jump a major version and change its data layout; pinned `postgres:17`.

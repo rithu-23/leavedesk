@@ -1,0 +1,12 @@
+# Never send these to Docker when building the image.
+.env
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+tests
+.vscode
+.idea
+.DS_Store
