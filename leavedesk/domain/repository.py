@@ -1,8 +1,8 @@
 """Storage for LeaveDesk behind a repository interface.
 
-LeaveService depends only on the abstract LeaveRepository. Capstone 1 uses the
-in-memory implementation; Capstone 3 adds a PostgreSQL implementation of the
-same interface without changing the leave rules.
+LeaveService depends only on the abstract LeaveRepository. Capstones 1 and 2
+use the in-memory implementation; Capstone 3 adds a PostgreSQL implementation
+of the same interface without changing the leave rules.
 """
 
 from abc import ABC, abstractmethod
@@ -23,6 +23,10 @@ class LeaveRepository(ABC):
     @abstractmethod
     def get_employee(self, employee_id: str) -> Employee:
         """Return the employee, or raise NotFoundError."""
+
+    @abstractmethod
+    def list_employees(self) -> list[Employee]:
+        """Return every employee."""
 
     # ----- Leave requests -----
     @abstractmethod
@@ -57,6 +61,14 @@ class LeaveRepository(ABC):
     def add_notification(self, notification: Notification) -> None: ...
 
     @abstractmethod
+    def get_notification(self, notification_id: str) -> Notification:
+        """Return the notification, or raise NotFoundError."""
+
+    @abstractmethod
+    def save_notification(self, notification: Notification) -> None:
+        """Store changes to an existing notification, or raise NotFoundError."""
+
+    @abstractmethod
     def list_notifications(self, recipient_id: str) -> list[Notification]:
         """Return the recipient's notifications, newest first."""
 
@@ -65,15 +77,14 @@ class InMemoryLeaveRepository(LeaveRepository):
     """Keeps everything in dictionaries while the program runs.
 
     Objects are stored and returned as deep copies, so a change only counts
-    once it is saved, just like a real database. This catches
-    "forgot to save" bugs now instead of in Capstone 3.
+    once it is saved, just like a real database.
     """
 
     def __init__(self) -> None:
         self._employees: dict[str, Employee] = {}
         self._requests: dict[str, LeaveRequest] = {}
         self._balances: dict[tuple[str, LeaveType], LeaveBalance] = {}
-        self._notifications: list[Notification] = []
+        self._notifications: dict[str, Notification] = {}
 
     # ----- Employees -----
     def add_employee(self, employee: Employee) -> None:
@@ -85,6 +96,9 @@ class InMemoryLeaveRepository(LeaveRepository):
         if employee_id not in self._employees:
             raise NotFoundError("Employee", employee_id)
         return deepcopy(self._employees[employee_id])
+
+    def list_employees(self) -> list[Employee]:
+        return [deepcopy(employee) for employee in self._employees.values()]
 
     # ----- Leave requests -----
     def add_request(self, request: LeaveRequest) -> None:
@@ -125,8 +139,20 @@ class InMemoryLeaveRepository(LeaveRepository):
 
     # ----- Notifications -----
     def add_notification(self, notification: Notification) -> None:
-        self._notifications.append(deepcopy(notification))
+        if notification.id in self._notifications:
+            raise ValueError(f"notification {notification.id} already exists")
+        self._notifications[notification.id] = deepcopy(notification)
+
+    def get_notification(self, notification_id: str) -> Notification:
+        if notification_id not in self._notifications:
+            raise NotFoundError("Notification", notification_id)
+        return deepcopy(self._notifications[notification_id])
+
+    def save_notification(self, notification: Notification) -> None:
+        if notification.id not in self._notifications:
+            raise NotFoundError("Notification", notification.id)
+        self._notifications[notification.id] = deepcopy(notification)
 
     def list_notifications(self, recipient_id: str) -> list[Notification]:
-        mine = [n for n in self._notifications if n.recipient_id == recipient_id]
+        mine = [n for n in self._notifications.values() if n.recipient_id == recipient_id]
         return [deepcopy(n) for n in sorted(mine, key=lambda n: n.created_at, reverse=True)]

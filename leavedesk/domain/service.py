@@ -129,13 +129,15 @@ class LeaveService:
 
         self._repo.save_request(request)
         self._repo.save_balance(balance)
-        await self._emit([
-            Notification(
-                recipient_id=employee.id,
-                event=NotificationEvent.APPROVED,
-                message=f"Your request for {self._describe(request)} was approved.",
-            )
-        ])
+        await self._emit(
+            [
+                Notification(
+                    recipient_id=employee.id,
+                    event=NotificationEvent.APPROVED,
+                    message=f"Your request for {self._describe(request)} was approved.",
+                )
+            ]
+        )
         return request
 
     @audit
@@ -157,16 +159,18 @@ class LeaveService:
 
         self._repo.save_request(request)
         self._repo.save_balance(balance)
-        await self._emit([
-            Notification(
-                recipient_id=employee.id,
-                event=NotificationEvent.REJECTED,
-                message=(
-                    f"Your request for {self._describe(request)} was rejected: "
-                    f"{request.decision_note}"
-                ),
-            )
-        ])
+        await self._emit(
+            [
+                Notification(
+                    recipient_id=employee.id,
+                    event=NotificationEvent.REJECTED,
+                    message=(
+                        f"Your request for {self._describe(request)} was rejected: "
+                        f"{request.decision_note}"
+                    ),
+                )
+            ]
+        )
         return request
 
     @audit
@@ -184,13 +188,15 @@ class LeaveService:
         self._repo.save_request(request)
         self._repo.save_balance(balance)
         if employee.manager_id:
-            await self._emit([
-                Notification(
-                    recipient_id=employee.manager_id,
-                    event=NotificationEvent.CANCELLED,
-                    message=f"{employee.name} cancelled their request for {self._describe(request)}.",
-                )
-            ])
+            await self._emit(
+                [
+                    Notification(
+                        recipient_id=employee.manager_id,
+                        event=NotificationEvent.CANCELLED,
+                        message=f"{employee.name} cancelled their request for {self._describe(request)}.",
+                    )
+                ]
+            )
         return request
 
     # ---------------------------------------------------------------- queries

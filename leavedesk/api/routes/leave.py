@@ -48,7 +48,9 @@ def list_leave_requests(
             raise NotAuthorisedError(f"{me.id} may not list requests of {employee_id}.")
         visible = {employee_id}
 
-    items = [r for r in state.repository.list_requests(status=status_filter) if r.employee_id in visible]
+    items = [
+        r for r in state.repository.list_requests(status=status_filter) if r.employee_id in visible
+    ]
     items.sort(key=lambda r: r.start_date, reverse=sort == "-start_date")
     page = items[offset : offset + limit]
     return Page(
@@ -81,5 +83,7 @@ async def reject_leave(
 
 
 @router.delete("/leave-requests/{request_id}")
-async def cancel_leave(request_id: str, me: CurrentEmployee, service: ServiceDep) -> LeaveRequestOut:
+async def cancel_leave(
+    request_id: str, me: CurrentEmployee, service: ServiceDep
+) -> LeaveRequestOut:
     return LeaveRequestOut.from_domain(await service.cancel(request_id, me.id))

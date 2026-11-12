@@ -108,7 +108,10 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
 async def _unexpected_error(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("unhandled error request_id=%s", getattr(request.state, "request_id", None))
     return error_response(
-        request, 500, "INTERNAL_ERROR", "Something went wrong. Quote the request id if reporting it."
+        request,
+        500,
+        "INTERNAL_ERROR",
+        "Something went wrong. Quote the request id if reporting it.",
     )
 
 

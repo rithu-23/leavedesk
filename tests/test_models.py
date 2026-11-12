@@ -30,9 +30,13 @@ def test_each_request_gets_its_own_id() -> None:
 @pytest.mark.parametrize(
     "changes",
     [
-        pytest.param({"start_date": "2026-11-13", "end_date": "2026-11-11"}, id="AC-2.1 end before start"),
+        pytest.param(
+            {"start_date": "2026-11-13", "end_date": "2026-11-11"}, id="AC-2.1 end before start"
+        ),
         pytest.param({"reason": "   trip   "}, id="AC-2.2 reason too short after trimming"),
-        pytest.param({"end_date": "2026-11-12", "half_day": True}, id="AC-2.3 half day over two dates"),
+        pytest.param(
+            {"end_date": "2026-11-12", "half_day": True}, id="AC-2.3 half day over two dates"
+        ),
         pytest.param({"status": "on_hold"}, id="AC-2.4 unknown status"),
     ],
 )

@@ -51,9 +51,7 @@ def build_service(notifiers: Sequence[Notifier] = ()) -> LeaveService:
     service = LeaveService(
         InMemoryLeaveRepository(), default_policies(), notifiers=notifiers, clock=lambda: TODAY
     )
-    service.register_employee(
-        Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager")
-    )
+    service.register_employee(Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager"))
     service.register_employee(
         Employee(id=LEE, name="Lee", email="lee@leavedesk.test", role="manager")
     )
@@ -155,7 +153,9 @@ async def happy_path(check: Checklist) -> None:
     print("\n  -- cancel, re-apply and reject --")
     weekend = await service.apply(ANA, ANNUAL, d(20), d(23), "Long weekend at home")
     cancelled = await service.cancel(weekend.id, ANA)
-    check.equal("AC-8.1 Ana cancels Fri 20 - Mon 23: status", cancelled.status, LeaveStatus.CANCELLED)
+    check.equal(
+        "AC-8.1 Ana cancels Fri 20 - Mon 23: status", cancelled.status, LeaveStatus.CANCELLED
+    )
     check.equal("AC-8.1 days returned: annual available", available(service), Decimal("14.5"))
     again = await service.apply(ANA, ANNUAL, d(20), d(23), "Long weekend at home")
     check.equal("AC-4.2 re-apply the cancelled dates: status", again.status, LeaveStatus.PENDING)

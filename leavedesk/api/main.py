@@ -55,7 +55,9 @@ def create_app(
         policies=policies,
         users=users,
         broker=broker,
-        notifiers=list(notifiers) if notifiers is not None else [EmailNotifier(), StreamNotifier(broker)],
+        notifiers=list(notifiers)
+        if notifiers is not None
+        else [EmailNotifier(), StreamNotifier(broker)],
         clock=clock,
     )
     app.add_middleware(RequestIdMiddleware)

@@ -1,5 +1,8 @@
-annotated-types==0.8.0
-pydantic==2.14.3
-pydantic_core==2.50.4
-typing-inspection==0.4.5
-typing_extensions==4.16.0
+# Libraries the app needs to run.
+pydantic>=2.9
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic-settings>=2.6
+pyjwt>=2.9
+argon2-cffi>=23.1
+python-multipart>=0.0.12
