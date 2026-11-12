@@ -38,7 +38,9 @@ class Notifier(ABC):
         await self.deliver(notification)
         logger.info(
             "sent channel=%s recipient=%s event=%s",
-            self.channel, notification.recipient_id, notification.event,
+            self.channel,
+            notification.recipient_id,
+            notification.event,
         )
 
     @abstractmethod
@@ -97,6 +99,8 @@ async def send_all(
             failed += 1
             logger.error(
                 "send failed channel=%s recipient=%s error=%s",
-                notifier.channel, notification.recipient_id, type(result).__name__,
+                notifier.channel,
+                notification.recipient_id,
+                type(result).__name__,
             )
     return DeliveryReport(sent=len(jobs) - failed, failed=failed)

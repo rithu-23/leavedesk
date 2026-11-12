@@ -6,7 +6,13 @@ from decimal import Decimal
 
 import pytest
 
-from leavedesk.domain.models import LeaveRequest, LeaveStatus, LeaveType, Notification, NotificationEvent
+from leavedesk.domain.models import (
+    LeaveRequest,
+    LeaveStatus,
+    LeaveType,
+    Notification,
+    NotificationEvent,
+)
 from leavedesk.domain.notifications import (
     DeliveryReport,
     EmailNotifier,

@@ -62,14 +62,19 @@ def _log_success(action: str, request_id: str, result: Any, timer: Timer) -> Non
     result_id = getattr(result, "id", None) or request_id
     logger.info(
         "audit action=%s request_id=%s outcome=success duration_ms=%.2f",
-        action, result_id, timer.elapsed_ms,
+        action,
+        result_id,
+        timer.elapsed_ms,
     )
 
 
 def _log_failure(action: str, request_id: str, error: Exception, timer: Timer) -> None:
     logger.warning(
         "audit action=%s request_id=%s outcome=failed error=%s duration_ms=%.2f",
-        action, request_id, type(error).__name__, timer.elapsed_ms,
+        action,
+        request_id,
+        type(error).__name__,
+        timer.elapsed_ms,
     )
 
 

@@ -1,9 +1,21 @@
-# Project-wide tool settings. pytest reads the [tool.pytest.ini_options] section.
-# Ruff (Day 2) will add its own [tool.ruff] section here.
+# Project-wide tool settings.
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]                          # only look for tests in tests/
-pythonpath = ["."]                             # so tests can import the leavedesk package
-asyncio_mode = "auto"                          # run async def tests without extra markers
+testpaths = ["tests"]                            # only look for tests in tests/
+pythonpath = ["."]                               # so tests can import the leavedesk package
+asyncio_mode = "auto"                            # run async def tests without extra markers
 asyncio_default_fixture_loop_scope = "function"  # a fresh event loop for every test
-addopts = "-ra"                                # print a short summary of anything not passed
+addopts = "-ra"                                  # print a short summary of anything not passed
+filterwarnings = [
+    # Starlette's test client is moving from httpx to httpx2; tracked in AI_NOTES (Entry 7).
+    "ignore:Using .httpx. with .starlette.testclient. is deprecated",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: errors and pyflakes, I: import order, B: likely bugs, SIM: simpler code
+select = ["E", "F", "I", "B", "SIM"]
+ignore = ["E501"]  # line length is handled by `ruff format`

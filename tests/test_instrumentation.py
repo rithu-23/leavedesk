@@ -35,7 +35,9 @@ def test_failure_is_logged_and_still_raised(caplog: pytest.LogCaptureFixture) ->
     caplog.set_level(logging.INFO, logger="leavedesk.audit")
     with pytest.raises(InvalidTransitionError):
         reject("LR-2")
-    assert "action=reject request_id=LR-2 outcome=failed error=InvalidTransitionError" in caplog.text
+    assert (
+        "action=reject request_id=LR-2 outcome=failed error=InvalidTransitionError" in caplog.text
+    )
 
 
 async def test_async_functions_are_audited(caplog: pytest.LogCaptureFixture) -> None:

@@ -116,3 +116,25 @@
 **Issues caught:**
 1. **Missing tests went unnoticed until counted:** the first pytest run collected 16 tests instead of 25, because test_models.py had been created but not saved. Caught by comparing the collected count with the expected count. Turned on VS Code Auto Save.
 2. **Known risk:** the concurrency test asserts that 4 sends of 0.2 s finish in under 0.4 s. On a very slow machine this could fail occasionally; the margin is twice the expected time to keep that unlikely.
+
+
+---
+
+## Entry 7 — REST API (Capstone 2, tasks A2–A11)
+
+**Prompt:** Implement API_SPEC.md: FastAPI app factory, pydantic-settings, Argon2id hashing, JWT auth, the error contract, request-ID middleware, leave and notification routes, BackgroundTasks sending, an SSE stream, then tests for API-1 to API-28 and Ruff.
+
+**Generated:** The `leavedesk/api` package (13 files), two domain additions (repository notification methods, Inbox), 40 API tests with a mocked notifier and signed-in user fixtures, and Ruff settings.
+
+**Checked / changed:**
+- Smoke-tested with curl: health, generic login error, 201 on apply with `X-Request-ID`, balances returned as strings.
+- Security review of the generated code: `jwt.decode` pins `algorithms=[...]` (blocks algorithm-swap attacks); unknown emails are checked against a dummy Argon2 hash so failed logins take the same time; the login error text is identical for both failure cases; `employee_id` is taken from the token, never the body (tested); `.env` is git-ignored and tests never read it.
+- Confirmed BackgroundTasks really defer sending: a unit test shows one task is queued and nothing is sent until the task runs.
+- 117 tests pass; `ruff check` and `ruff format --check` are clean.
+
+**Issues caught:**
+1. **Wrong code in the wrong file:** `/auth/login` returned 404. Listing the registered routes from `/openapi.json` and comparing line counts showed the leave-route code had been pasted into `routes/auth.py`. Fixed and re-verified.
+2. **Dependency file contents:** the Day 1 approach (`pip freeze > requirements.txt`) would now ship pytest and Ruff into the production image. Changed `requirements.txt` to the app's runtime libraries only, with test tools in `requirements-dev.txt`.
+3. **Browser limitation found while specifying the stream:** EventSource cannot send an Authorization header, so the stream also accepts `?access_token=`. To stop tokens reaching logs, the middleware logs the path without the query string.
+4. **Deprecation warning:** Starlette warns that its TestClient is moving from httpx to httpx2. Filtered that single warning in pyproject.toml so test output stays clean; follow-up: switch to httpx2 once FastAPI's TestClient supports it.
+5. **Files missing from the pushed branch:** a typo in `.env.example`'s file name made one `git add` command fail completely, so `inbox.py` and `.env.example` were never committed although tests passed locally. Caught by reading `git status` after pushing; confirmed fixed by cloning the branch into a fresh folder and running the full test suite there.

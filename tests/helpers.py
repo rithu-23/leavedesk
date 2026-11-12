@@ -23,9 +23,7 @@ def build_service(notifiers: Sequence[Notifier] = ()) -> LeaveService:
     service = LeaveService(
         InMemoryLeaveRepository(), default_policies(), notifiers=notifiers, clock=lambda: TODAY
     )
-    service.register_employee(
-        Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager")
-    )
+    service.register_employee(Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager"))
     service.register_employee(
         Employee(id=LEE, name="Lee", email="lee@leavedesk.test", role="manager")
     )
