@@ -1,9 +1,20 @@
-#List of cache files and directories not pushed to git
+# List of cache files and directories not pushed to git
+
+# ---- Python virtual environment ----
 .venv/
+
+# ---- Python cache files ----
 __pycache__/
 *.pyc
+
+# ---- Tool caches (pytest and Ruff) ----
 .pytest_cache/
 .ruff_cache/
+
+# ---- Secrets: never commit these ----
 .env
+
+# ---- macOS and editor clutter ----
 .DS_Store
 .idea/
+.vscode/
