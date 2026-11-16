@@ -1,27 +1,51 @@
 # docker compose up --build    then open http://localhost:8000/docs
+# First run after this change (or to re-run the role script): docker compose down -v
 services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    env_file: .env            # JWT_SECRET, DEMO_PASSWORD, ... read at run time, never baked into the image
-    depends_on:
-      db:
-        condition: service_healthy
-
   db:
-    image: postgres:17        # pinned major version; used by the API from Capstone 3
+    image: postgres:17        # pinned major version
     environment:
       POSTGRES_DB: leavedesk
       POSTGRES_USER: leavedesk
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Read by docker/postgres-init/01-roles.sh to create the two roles (SCHEMA.md 6)
+      MIGRATOR_PASSWORD: ${MIGRATOR_PASSWORD:?Set MIGRATOR_PASSWORD in .env}
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in .env}
+    ports:
+      # Mac port 5433 -> container port 5432. Not 5432 on the Mac side, because a PostgreSQL
+      # installed directly on the Mac often already uses it. Containers still use db:5432.
+      # Bound to 127.0.0.1: reachable from this Mac (Alembic, pytest), not from the network.
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro   # runs only on an empty volume
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U leavedesk -d leavedesk"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    environment:
+      # Same role and password as in .env, but the host is the db container.
+      MIGRATION_DATABASE_URL: postgresql+psycopg://leavedesk_migrator:${MIGRATOR_PASSWORD}@db:5432/leavedesk
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"             # a one-off job: run the migrations, then exit
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env            # JWT_SECRET, DEMO_PASSWORD, ... read at run time, never baked into the image
+    environment:
+      DATABASE_URL: postgresql+psycopg://leavedesk_app:${APP_PASSWORD}@db:5432/leavedesk
+    depends_on:
+      migrate:
+        condition: service_completed_successfully   # never start against an old schema
 
 volumes:
   pgdata:

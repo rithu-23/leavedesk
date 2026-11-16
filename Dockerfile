@@ -13,8 +13,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Then copy only the application code (tests and dev tools stay out of the image).
+# Then copy only the application code and the migrations (tests and dev tools stay out of the image).
 COPY leavedesk ./leavedesk
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 # Run as an ordinary user, not root.
 RUN useradd --create-home --uid 10001 appuser

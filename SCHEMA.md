@@ -1,6 +1,6 @@
 # LeaveDesk — Database Schema (Capstone 3)
 
-**Version:** 1.0 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
+**Version:** 1.1 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
 
 This document explains what the database stores, which rules the database itself enforces,
 and why each design choice was made. The SQLAlchemy models (`leavedesk/db/models.py`) and the
@@ -240,7 +240,9 @@ never become negative" (BR-4).
 
 **Append-only is enforced twice:** the app role is granted only `SELECT, INSERT`; and a
 `BEFORE UPDATE OR DELETE` trigger raises an error, so even the migration role cannot rewrite history
-by mistake. Corrections are new rows, never edits.
+by mistake. Corrections are new rows, never edits. Row triggers do not fire on `TRUNCATE`; the app
+role has no `TRUNCATE` privilege, so only the schema owner (migrator) could empty the table, which the
+test suite does on purpose to reset the test database.
 
 ### 4.9 `audit_log` (append-only)
 | Column | Type | Rules |
@@ -374,6 +376,13 @@ on a live production table we would use `CREATE INDEX CONCURRENTLY` in a non-tra
 | `leavedesk_migrator` | yes | the `public` schema and every table | all, including DDL | Alembic |
 | `leavedesk_app` | yes | nothing | `CONNECT`; `USAGE` on the schema; `SELECT, INSERT, UPDATE, DELETE` on tables, except `SELECT, INSERT` only on `leave_ledger` and `audit_log`; `USAGE` on sequences; **no `CREATE`** | the API and the worker |
 
+**How the grants are made:** `docker/postgres-init/01-roles.sh` creates both roles, the
+`leavedesk_test` database and, in each database, `ALTER DEFAULT PRIVILEGES FOR ROLE leavedesk_migrator`,
+so every table a revision creates is automatically usable by the app role. A revision only has to take
+rights *away* (revision 0001 revokes `UPDATE, DELETE` on the two append-only tables). Passwords come
+from `MIGRATOR_PASSWORD` and `APP_PASSWORD` in `.env`. The script runs only when the data volume is
+empty (`docker compose down -v` to run it again).
+
 App-role session settings (`ALTER ROLE leavedesk_app SET …`), so a stuck query or lock cannot hang a request:
 
 | Setting | Value | Effect |
@@ -406,7 +415,7 @@ tenant tables, with the app setting `app.tenant_id` at the start of each transac
 
 | Revision | Branch / PR | Contents |
 |---|---|---|
-| `0001_initial_schema` | `feature/db-infra` | Extensions (`btree_gist`), tables 4.1–4.10, constraints, EXCLUDE, FK indexes, unread partial index, append-only triggers, grants, seed tenant `T-DEMO`, department `Engineering` and the three leave types |
+| `0001_initial_schema` | `feature/db-infra` | Extensions (`btree_gist`), tables 4.1–4.10, constraints, EXCLUDE, FK indexes, unread partial index, append-only triggers, revoke `UPDATE, DELETE` on the append-only tables, seed tenant `T-DEMO`, department `Engineering` and the three leave types |
 | `0002_idempotency_keys` | `feature/safe-approvals` | Table 4.12 |
 | `0003_notification_outbox` | `feature/db-notifications` | Table 4.11, outbox index, `pg_notify` trigger on `notifications` |
 | `0004_query_indexes` | `feature/perf` | `pg_trgm` extension, the three indexes in 5.2, drop the redundant `ix_leave_requests_employee_id` |
@@ -438,3 +447,4 @@ Every revision has a working `downgrade()`; DB-3 checks `upgrade head → downgr
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-11-16 | Initial schema for Capstone 3 |
+| 1.1 | 2026-11-16 | Section 6: grants come from default privileges set by the init script, revisions only revoke; 4.8: TRUNCATE note; section 8: revision 0001 contents updated to match the code. |
