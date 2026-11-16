@@ -18,16 +18,18 @@ def d(day: int, month: int = 11) -> date:
     return date(2026, month, day)
 
 
-def build_service(notifiers: Sequence[Notifier] = ()) -> LeaveService:
+async def build_service(notifiers: Sequence[Notifier] = ()) -> LeaveService:
     """A fresh LeaveService with Ana (reports to Mo), Mo and Lee registered."""
     service = LeaveService(
         InMemoryLeaveRepository(), default_policies(), notifiers=notifiers, clock=lambda: TODAY
     )
-    service.register_employee(Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager"))
-    service.register_employee(
+    await service.register_employee(
+        Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager")
+    )
+    await service.register_employee(
         Employee(id=LEE, name="Lee", email="lee@leavedesk.test", role="manager")
     )
-    service.register_employee(
+    await service.register_employee(
         Employee(id=ANA, name="Ana", email="ana@leavedesk.test", role="employee", manager_id=MO)
     )
     return service

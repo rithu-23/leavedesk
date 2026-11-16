@@ -177,3 +177,24 @@
 3. **Plan item that broke a requirement:** the first plan listed the outbox worker as something to cut if time was short, but the workshop plan names the worker as a requirement. Removed it from the cut list.
 4. **Index plan that would have defeated the "Done when":** foreign key indexes required by Part A (on `leave_requests.employee_id`) would already serve two of the three PERF queries, so their "before" plans would never show a sequential scan. Documented the method in SCHEMA.md 5.2: capture "before" plans with the index dropped inside a rolled-back transaction (PostgreSQL DDL is transactional), and replace the single-column FK index with the composite history index, which also covers the foreign key.
 5. **Notifications needed earlier than planned:** the first plan put the `notifications` table in a later revision, but the Day 2 notification tests must pass on PostgreSQL as soon as the repository is swapped in. Moved `notifications` into revision 0001; only the outbox comes later.
+
+
+---
+
+## Entry 10 — Async repository (Capstone 3, task T15)
+
+**Prompt:** Make the `LeaveRepository` interface async so a PostgreSQL implementation can await the database, keep everything else working on the in-memory repository, and add the `lock` keyword from SPEC BR-10.
+
+**Generated:** Async versions of `LeaveRepository`, `InMemoryLeaveRepository`, `Inbox`, the storage-touching `LeaveService` methods (`register_employee`, `get_balances`, `list_notifications` and helpers), API dependencies and routes, the demo and the test helpers; demo-data seeding moved into a FastAPI lifespan; a new `tests/test_locking.py`.
+
+**Checked / changed:**
+- Ran the full suite before changing anything (117 passed) and after (120 passed: the original 117 unchanged in meaning plus 3 new lock-order tests). The Day 2 API test files needed no edits.
+- `python -m leavedesk.demo` still passes 32/32; `ruff check` and `ruff format --check` are clean.
+- Started the real server with uvicorn and checked login, a balance read and a wrong-password 401 with curl, which proves the lifespan seeding runs outside the tests too.
+- Kept the pure rules (dates, policies, balance arithmetic, Pydantic validation) synchronous, following the trainer's guidance: async only for code that waits on I/O.
+
+**Issues caught:**
+1. **Hidden event-loop blocking:** making `/auth/login` an `async def` (needed to await the repository) would have run Argon2id, which is deliberately slow, directly on the event loop, freezing every other request during each login. The old sync route ran in FastAPI's thread pool automatically. Fixed by calling `verify_password` through `run_in_threadpool`.
+2. **Seeding could no longer run in the factory:** `create_app` is a plain function, so it cannot `await register_employee`. Moved seeding into a lifespan handler, which both uvicorn and `with TestClient(app)` run before the first request.
+3. **Clumsy generated test code:** the AI's first edit of `tests/test_service.py` produced `assert ((await annual(service)).pending, (await annual(service)).available) == ...`, which reads the balance twice. Rewritten to read it once into a variable.
+4. **Known follow-up:** the Day 2 test for API-28 calls `users.find_by_email()` synchronously, so the user store stays sync in this step. Step 5 (PostgreSQL users) must keep that method callable without `await`, or that unchanged test breaks.

@@ -8,9 +8,9 @@ from tests.helpers import build_service
 
 
 @pytest.fixture
-def service() -> LeaveService:
-    """A fresh service with no notifiers, built anew for every test."""
-    return build_service()
+async def service() -> LeaveService:
+    """A fresh service with no notifiers, built anew for every test (async: it registers employees)."""
+    return await build_service()
 
 
 @pytest.fixture

@@ -7,6 +7,12 @@ changing these rules.
 
 Every check runs before anything is saved, so a failed action leaves no
 partial changes behind. Notifications are sent last, after the change is saved.
+
+Storage calls are awaited (the repository is async, SPEC T15). Actions that
+change a balance ask the repository to lock the rows they will change, always
+request first and then balance, so concurrent actions on a database cannot
+interfere or deadlock (SPEC BR-10). The pure rules (dates, policies, balance
+arithmetic) stay synchronous: they never wait for anything.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -52,11 +58,11 @@ class LeaveService:
     # ------------------------------------------------------------------ setup
 
     @audit
-    def register_employee(self, employee: Employee) -> Employee:
+    async def register_employee(self, employee: Employee) -> Employee:
         """Add an employee and give them their starting balances (BR-1)."""
-        self._repo.add_employee(employee)
+        await self._repo.add_employee(employee)
         for balance in default_balances(employee.id).values():
-            self._repo.save_balance(balance)
+            await self._repo.save_balance(balance)
         return employee
 
     # --------------------------------------------------------------- actions
@@ -72,7 +78,7 @@ class LeaveService:
         half_day: bool = False,
     ) -> LeaveRequest:
         """Submit a leave request (FR-1 to FR-5, FR-9)."""
-        employee = self._repo.get_employee(employee_id)
+        employee = await self._repo.get_employee(employee_id)
         request = LeaveRequest(  # Pydantic checks the input here (FR-2)
             employee_id=employee.id,
             leave_type=leave_type,
@@ -85,17 +91,17 @@ class LeaveService:
         days = count_working_days(request.start_date, request.end_date, request.half_day)
         self._policies[request.leave_type].validate(request, days, self._clock())  # FR-3
 
-        clash = find_overlap(request, self._repo.list_requests(employee_id=employee.id))
+        clash = find_overlap(request, await self._repo.list_requests(employee_id=employee.id))
         if clash is not None:  # FR-4
             raise OverlappingLeaveError(clash.id)
 
-        balance = self._repo.get_balance(employee.id, request.leave_type)
+        balance = await self._repo.get_balance(employee.id, request.leave_type, lock=True)
         balance.reserve(days)  # FR-5: raises InsufficientBalanceError if too few days
 
         # All checks passed: now save.
         request.days = days
-        self._repo.add_request(request)
-        self._repo.save_balance(balance)
+        await self._repo.add_request(request)
+        await self._repo.save_balance(balance)
 
         notices = [
             Notification(
@@ -118,17 +124,17 @@ class LeaveService:
     @audit
     async def approve(self, request_id: str, approver_id: str) -> LeaveRequest:
         """Approve a pending request (FR-6, FR-9)."""
-        request, employee = self._load(request_id)
-        self._ensure_manager_of(approver_id, employee)
+        request, employee = await self._load(request_id)
+        await self._ensure_manager_of(approver_id, employee)
         self._ensure_pending(request, "approve")
 
-        balance = self._repo.get_balance(employee.id, request.leave_type)
+        balance = await self._repo.get_balance(employee.id, request.leave_type, lock=True)
         balance.confirm(request.days)
         request.status = LeaveStatus.APPROVED
         request.decided_by = approver_id
 
-        self._repo.save_request(request)
-        self._repo.save_balance(balance)
+        await self._repo.save_request(request)
+        await self._repo.save_balance(balance)
         await self._emit(
             [
                 Notification(
@@ -145,20 +151,20 @@ class LeaveService:
         self, request_id: str, approver_id: str, note: str | None = None
     ) -> LeaveRequest:
         """Reject a pending request; a reason is required (FR-7, FR-9)."""
-        request, employee = self._load(request_id)
-        self._ensure_manager_of(approver_id, employee)
+        request, employee = await self._load(request_id)
+        await self._ensure_manager_of(approver_id, employee)
         self._ensure_pending(request, "reject")
         if note is None or not note.strip():
             raise InvalidLeaveRequestError("A rejection needs a reason (BR-6).")
 
-        balance = self._repo.get_balance(employee.id, request.leave_type)
+        balance = await self._repo.get_balance(employee.id, request.leave_type, lock=True)
         balance.release(request.days)
         request.status = LeaveStatus.REJECTED
         request.decided_by = approver_id
         request.decision_note = note.strip()
 
-        self._repo.save_request(request)
-        self._repo.save_balance(balance)
+        await self._repo.save_request(request)
+        await self._repo.save_balance(balance)
         await self._emit(
             [
                 Notification(
@@ -176,17 +182,17 @@ class LeaveService:
     @audit
     async def cancel(self, request_id: str, employee_id: str) -> LeaveRequest:
         """Cancel your own pending request (FR-8, FR-9)."""
-        request, employee = self._load(request_id)
+        request, employee = await self._load(request_id)
         if request.employee_id != employee_id:
             raise NotAuthorisedError("Only the employee who made the request can cancel it (BR-6).")
         self._ensure_pending(request, "cancel")
 
-        balance = self._repo.get_balance(employee.id, request.leave_type)
+        balance = await self._repo.get_balance(employee.id, request.leave_type, lock=True)
         balance.release(request.days)
         request.status = LeaveStatus.CANCELLED
 
-        self._repo.save_request(request)
-        self._repo.save_balance(balance)
+        await self._repo.save_request(request)
+        await self._repo.save_balance(balance)
         if employee.manager_id:
             await self._emit(
                 [
@@ -202,27 +208,32 @@ class LeaveService:
     # ---------------------------------------------------------------- queries
 
     @audit
-    def get_balances(self, employee_id: str) -> dict[LeaveType, LeaveBalance]:
+    async def get_balances(self, employee_id: str) -> dict[LeaveType, LeaveBalance]:
         """All of an employee's balances, one per leave type (FR-10)."""
-        self._repo.get_employee(employee_id)  # raises NotFoundError for unknown ids
+        await self._repo.get_employee(employee_id)  # raises NotFoundError for unknown ids
         return {
-            leave_type: self._repo.get_balance(employee_id, leave_type) for leave_type in LeaveType
+            leave_type: await self._repo.get_balance(employee_id, leave_type)
+            for leave_type in LeaveType
         }
 
-    def list_notifications(self, recipient_id: str) -> list[Notification]:
+    async def list_notifications(self, recipient_id: str) -> list[Notification]:
         """A person's notifications, newest first."""
-        return self._repo.list_notifications(recipient_id)
+        return await self._repo.list_notifications(recipient_id)
 
     # ---------------------------------------------------------------- helpers
 
-    def _load(self, request_id: str) -> tuple[LeaveRequest, Employee]:
-        """Fetch a request and the employee who made it (NotFoundError if missing)."""
-        request = self._repo.get_request(request_id)
-        return request, self._repo.get_employee(request.employee_id)
+    async def _load(self, request_id: str) -> tuple[LeaveRequest, Employee]:
+        """Fetch and lock a request, plus the employee who made it (NotFoundError if missing).
 
-    def _ensure_manager_of(self, approver_id: str, employee: Employee) -> None:
+        Only approve, reject and cancel call this, and each will change the
+        request, so it is always locked (BR-10).
+        """
+        request = await self._repo.get_request(request_id, lock=True)
+        return request, await self._repo.get_employee(request.employee_id)
+
+    async def _ensure_manager_of(self, approver_id: str, employee: Employee) -> None:
         """Only the requester's own manager may decide (BR-6); this also blocks self-approval."""
-        approver = self._repo.get_employee(approver_id)
+        approver = await self._repo.get_employee(approver_id)
         if not approver.is_manager or employee.manager_id != approver.id:
             raise NotAuthorisedError(f"{approver.id} is not the manager of {employee.id} (BR-6).")
 
@@ -239,7 +250,7 @@ class LeaveService:
         cannot undo the action that has already been saved (AC-9.4).
         """
         for notification in notifications:
-            self._repo.add_notification(notification)
+            await self._repo.add_notification(notification)
         await send_all(notifications, self._notifiers)
 
     @staticmethod

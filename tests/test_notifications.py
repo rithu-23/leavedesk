@@ -42,7 +42,7 @@ async def apply_trip(service: LeaveService) -> LeaveRequest:
 async def test_submit_notifies_employee_and_manager_on_every_channel(
     email: EmailNotifier, in_app: InAppNotifier
 ) -> None:  # AC-9.1
-    service = build_service([email, in_app])
+    service = await build_service([email, in_app])
     await apply_trip(service)
     assert sorted(n.recipient_id for n in email.outbox) == [ANA, MO]
     assert set(in_app.inboxes) == {ANA, MO}
@@ -74,21 +74,23 @@ async def test_submit_notifies_employee_and_manager_on_every_channel(
 async def test_each_event_reaches_its_br7_recipients(
     email: EmailNotifier, event: NotificationEvent, act: Action, expected: list[str]
 ) -> None:
-    service = build_service([email])
+    service = await build_service([email])
     trip = await apply_trip(service)
     await act(service, trip.id)
     assert sorted({n.recipient_id for n in email.outbox if n.event == event}) == expected
 
 
 async def test_notifications_arrive_unread(email: EmailNotifier) -> None:  # AC-9.3
-    service = build_service([email])
+    service = await build_service([email])
     await apply_trip(service)
     assert email.outbox
     assert all(not n.read for n in email.outbox)
 
 
 async def test_sends_run_concurrently() -> None:  # AC-9.2
-    service = build_service([EmailNotifier(delay_seconds=0.2), InAppNotifier(delay_seconds=0.2)])
+    service = await build_service(
+        [EmailNotifier(delay_seconds=0.2), InAppNotifier(delay_seconds=0.2)]
+    )
     start = time.perf_counter()
     await apply_trip(service)
     elapsed = time.perf_counter() - start
@@ -98,10 +100,10 @@ async def test_sends_run_concurrently() -> None:  # AC-9.2
 async def test_failing_channel_does_not_undo_the_action(
     in_app: InAppNotifier, caplog: pytest.LogCaptureFixture
 ) -> None:  # AC-9.4
-    service = build_service([BrokenEmailNotifier(), in_app])
+    service = await build_service([BrokenEmailNotifier(), in_app])
     request = await apply_trip(service)
     assert request.status is LeaveStatus.PENDING
-    assert service.get_balances(ANA)[LeaveType.ANNUAL].pending == Decimal("3")
+    assert (await service.get_balances(ANA))[LeaveType.ANNUAL].pending == Decimal("3")
     assert sum(len(messages) for messages in in_app.inboxes.values()) == 2
     assert "send failed channel=broken-email" in caplog.text
 

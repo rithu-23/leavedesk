@@ -13,14 +13,14 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
 @router.get("")
-def list_notifications(
+async def list_notifications(
     me: CurrentEmployee,
     inbox: InboxDep,
     unread: bool = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[NotificationOut]:
-    items = inbox.list(me.id, unread_only=unread)
+    items = await inbox.list(me.id, unread_only=unread)
     page = items[offset : offset + limit]
     return Page(
         items=[NotificationOut.from_domain(n) for n in page],
@@ -31,13 +31,13 @@ def list_notifications(
 
 
 @router.post("/read-all")
-def mark_all_read(me: CurrentEmployee, inbox: InboxDep) -> dict[str, int]:
-    return {"updated": inbox.mark_all_read(me.id)}
+async def mark_all_read(me: CurrentEmployee, inbox: InboxDep) -> dict[str, int]:
+    return {"updated": await inbox.mark_all_read(me.id)}
 
 
 @router.post("/{notification_id}/read")
-def mark_read(notification_id: str, me: CurrentEmployee, inbox: InboxDep) -> NotificationOut:
-    return NotificationOut.from_domain(inbox.mark_read(notification_id, me.id))
+async def mark_read(notification_id: str, me: CurrentEmployee, inbox: InboxDep) -> NotificationOut:
+    return NotificationOut.from_domain(await inbox.mark_read(notification_id, me.id))
 
 
 @router.get("/stream")

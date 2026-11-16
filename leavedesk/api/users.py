@@ -36,8 +36,8 @@ DEMO_EMPLOYEES = (
 )
 
 
-def seed_demo_data(service: LeaveService, users: UserStore, password: str) -> None:
+async def seed_demo_data(service: LeaveService, users: UserStore, password: str) -> None:
     """Register the demo employees and give each a login with a hashed password."""
     for employee in DEMO_EMPLOYEES:
-        service.register_employee(employee)
+        await service.register_employee(employee)
         users.add(UserAccount(employee.id, employee.email, hash_password(password)))
