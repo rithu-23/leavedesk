@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     database_url: SecretStr | None = None
     db_echo: bool = False  # log every SQL statement (N+1 checks)
     tenant_id: str = "T-DEMO"  # SCHEMA.md P2: one tenant at run time
+    login_max_attempts: int = Field(default=5, ge=1)  # SPEC BR-13
+    login_lock_minutes: int = Field(default=15, ge=1)
 
     @field_validator("jwt_secret")
     @classmethod

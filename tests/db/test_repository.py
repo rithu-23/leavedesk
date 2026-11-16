@@ -173,3 +173,19 @@ async def test_db13_stale_update_becomes_concurrent_update_error(client: TestCli
 
         response = client.get(f"/leave-requests/{request_id}", headers=ana)
         assert response.json()["status"] == "cancelled"  # the first change was kept
+
+
+# ---------- DB-27: a lockout leaves an audit row (PostgreSQL) ----------
+
+
+def test_db27_lockout_writes_an_audit_row(client: TestClient, app_database_url: str) -> None:
+    for _ in range(5):
+        response = client.post(
+            "/auth/login", data={"username": "ana@leavedesk.test", "password": "wrong-password"}
+        )
+        assert response.status_code == 401
+    with psycopg.connect(libpq_url(app_database_url)) as conn:
+        rows = conn.execute(
+            "SELECT action, entity_public_id, details->>'failed_attempts' FROM audit_log"
+        ).fetchall()
+    assert rows == [("auth.lockout", "E-ANA", "5")]

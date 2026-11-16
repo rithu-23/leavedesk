@@ -306,3 +306,20 @@
 3. **A keyset query that wasn't keyset:** the generated keyset query computed its cursor with `OFFSET 49999` in a subquery, which does the same work as the OFFSET it was supposed to beat. A real cursor comes from the previous page, so the script now fetches it first and passes the values in (20 rows read instead of 50,020).
 4. **Autogenerate's ordering:** it dropped the old foreign key index before creating the replacement, leaving the foreign key unindexed in between, and it did not know `pg_trgm` must exist first. Reordered by hand.
 5. **Honest result, not a sales pitch:** with the Part A foreign key index, Q1 was already fast; the partial index's main benefit at this data shape is size (416 KB vs 3,984 KB) and removing per-row filtering. PERF.md says so instead of claiming a 20x win against an artificial baseline only.
+
+
+---
+
+## Entry 16 — Login lockout (Capstone 3, task T23)
+
+**Prompt:** Lock an account for 15 minutes after 5 wrong passwords in a row, with exactly the same generic 401 for locked accounts, unknown emails and wrong passwords; reset on success; audit the lockout; work in both storage modes.
+
+**Generated:** lockout fields on `UserAccount`, `record_failed_login` / `record_successful_login` on both user stores, the lockout in `check_login`, `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` settings, `tests/api/test_lockout_api.py` (DB-27, DB-28, both modes) and an audit-row test on PostgreSQL.
+
+**Checked / changed:**
+- 162 passed in memory and 162 on PostgreSQL.
+- A locked account with the right password gets the same status *and* message as a wrong password, and still pays for one Argon2 hash, so neither the answer nor its timing reveals that the account exists or is locked.
+
+**Issues caught:**
+1. **Read-then-write race on the counter:** counting failures by reading the count in Python and writing count + 1 would lose updates when two wrong passwords arrive at the same moment (an attacker could get extra guesses). The PostgreSQL store does it in one atomic conditional `UPDATE ... RETURNING`.
+2. **Locking forever by accident:** if failures kept counting after a lock expired, the very next typo would lock the account again (count 6 >= 5). An expired lock now restarts the count from 1. Failures *during* a lock are not counted, so an attacker cannot keep extending someone's lock.
