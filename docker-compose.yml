@@ -47,5 +47,15 @@ services:
       migrate:
         condition: service_completed_successfully   # never start against an old schema
 
+  worker:
+    build: .
+    command: ["python", "-m", "leavedesk.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://leavedesk_app:${APP_PASSWORD}@db:5432/leavedesk
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:

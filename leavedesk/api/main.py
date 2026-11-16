@@ -7,6 +7,8 @@ Storage is chosen by settings.database_url:
 - set:     PostgreSQL through SQLAlchemy (Capstone 3). Run `alembic upgrade head` first.
 """
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
@@ -24,6 +26,7 @@ from leavedesk.api.state import AppState
 from leavedesk.api.stream import NotificationBroker, StreamNotifier
 from leavedesk.api.users import UserStore, seed_demo_employees, seed_demo_logins
 from leavedesk.db.engine import create_engine, create_session_factory
+from leavedesk.db.listener import listen_for_notifications
 from leavedesk.db.models import TenantRow
 from leavedesk.db.repository import PostgresLeaveRepository
 from leavedesk.db.users import PostgresUserStore
@@ -33,6 +36,14 @@ from leavedesk.domain.repository import InMemoryLeaveRepository
 from leavedesk.domain.service import LeaveService
 
 logger = logging.getLogger("leavedesk.api")
+
+
+def default_notifiers(settings: Settings, broker: NotificationBroker) -> list[Notifier]:
+    """Real delivery channels. With PostgreSQL the stream is fed by LISTEN/NOTIFY instead
+    of a StreamNotifier, otherwise every notification would reach the stream twice."""
+    if settings.database_url is not None:
+        return [EmailNotifier()]
+    return [EmailNotifier(), StreamNotifier(broker)]
 
 
 def create_app(
@@ -53,9 +64,7 @@ def create_app(
         policies=default_policies(),
         users=UserStore(),
         broker=broker,
-        notifiers=list(notifiers)
-        if notifiers is not None
-        else [EmailNotifier(), StreamNotifier(broker)],
+        notifiers=list(notifiers) if notifiers is not None else default_notifiers(settings, broker),
         clock=clock,
     )
 
@@ -103,7 +112,16 @@ def create_app(
                 settings.tenant_id,
                 "seeded" if added else "already present",
             )
-            yield
+            # The live stream is fed by LISTEN/NOTIFY, not by the sender (SPEC DB-25).
+            listener = asyncio.create_task(
+                listen_for_notifications(url, state.session_factory, tenant_pk, broker)
+            )
+            try:
+                yield
+            finally:
+                listener.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await listener
         finally:
             if isinstance(state.users, PostgresUserStore):
                 state.users.dispose()

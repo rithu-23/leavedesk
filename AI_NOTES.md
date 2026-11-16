@@ -266,3 +266,23 @@
 2. **A flaky test:** even then, DB-7 depended on both submits running their overlap check before either saved, which is usual but not guaranteed, so it could fail now and then. A barrier in a test-only repository subclass forces that order, making the test deterministic (5/5 runs).
 3. **The demo needed the worst timing on purpose:** the unsafe repository waits on a barrier after reading, so both "managers" read the old values before either writes. Without it, the bug might not show up during the live demo.
 4. **An unsafe demo with half the protection still on:** turning off only the row lock would not show the bug, because the version check alone stops the second approval (with a 409). The demo repository writes with plain UPDATEs (no version check) to show the real lost-update bug; the regular code keeps both layers.
+
+
+---
+
+## Entry 14 — Notifications through the database (Capstone 3, task T21)
+
+**Prompt:** Add the transactional outbox: an outbox row written in the same transaction as each leave action, a sender that claims rows with `FOR UPDATE SKIP LOCKED`, a worker process, retries with back-off, a `pg_notify` trigger feeding the SSE stream through `LISTEN`, and tests including the rollback test from the "Done when".
+
+**Generated:** `NotificationOutboxRow` and revision 0002 (table, partial index on pending rows, trigger); `leavedesk/db/outbox.py` (`deliver_pending`); `leavedesk/db/listener.py`; `leavedesk/worker.py` and a `worker` Compose service; the API's background task now drains the outbox in PostgreSQL mode; `tests/db/test_outbox.py` (DB-22 to DB-26).
+
+**Checked / changed:**
+- 157 passed in memory and 157 on PostgreSQL. On PostgreSQL the unchanged Day 2 notification tests now get their notifications through the outbox.
+- `alembic upgrade head`, `downgrade -1`, `upgrade head`, `alembic check` all clean.
+- `python -m leavedesk.worker --once` starts, finds the tenant and exits.
+
+**Issues caught:**
+1. **Duplicate live notifications:** keeping the Day 2 `StreamNotifier` as a sending channel *and* feeding the stream from LISTEN would push every notification to the browser twice. In PostgreSQL mode the default channels are now email only; the stream is fed by LISTEN alone.
+2. **The rollback test needed to check NOTIFY too:** checking only the tables would miss a trigger that fired anyway. DB-23 also LISTENs and confirms no message arrives, because PostgreSQL delivers NOTIFY only on commit.
+3. **Holding locks while sending:** the sender keeps the claimed rows locked while it calls the channels. Fine for the instant email stub, but a slow real mail service would hold transactions open (and the app role's 10-second idle-in-transaction timeout would cut it off). Documented the trade-off in `outbox.py` and the better design for slow channels: mark rows "sending" with a lease, then commit before sending.
+4. **Spec drift:** SCHEMA.md 4.11 cited DB-19/20/21, numbers from a draft before SPEC.md section 12 was finalised (the real ones are DB-23 to DB-26), and planned 0002 for idempotency keys although the outbox was built first. Both corrected (SCHEMA.md v1.2).

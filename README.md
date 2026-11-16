@@ -61,6 +61,8 @@ docker compose up -d db
 | Run the **whole** suite on PostgreSQL (Day 2 tests included) | `scripts/pytest-postgres.sh` |
 | Concurrency tests (two users at once) | `python -m pytest tests/db/test_concurrency.py -v` |
 | Review demo: the same test **without** locks fails | `LEAVEDESK_DEMO_NO_LOCKS=1 python -m pytest tests/db/test_concurrency.py -k db10` |
+| Run the outbox worker (sends anything left behind) | `python -m leavedesk.worker` (or `--once` for one pass) |
+| Notification tests (outbox, rollback, LISTEN/NOTIFY) | `python -m pytest tests/db/test_outbox.py -v` |
 | Log every SQL statement (N+1 checks) | `DB_ECHO=true python -m uvicorn leavedesk.api.main:create_app --factory` |
 | Open a SQL prompt as the app role | `docker compose exec db psql -U leavedesk_app -d leavedesk` |
 
@@ -94,7 +96,7 @@ run against any database whose name does not end in `_test`.
 | `conftest.py`, `scripts/pytest-postgres.sh` | Run the whole suite on the PostgreSQL test database |
 | `SPEC.md`, `API_SPEC.md`, `SCHEMA.md` | Specifications, acceptance criteria and the database design |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
-| `Dockerfile`, `docker-compose.yml` | Container image and the `db`, `migrate` and `api` services |
+| `Dockerfile`, `docker-compose.yml` | Container image and the `db`, `migrate`, `api` and `worker` services |
 | `.env.example` | Every setting the app needs, with placeholder values |
 | `requirements.txt`, `requirements-dev.txt` | Runtime libraries; test and lint tools |
 | `pyproject.toml` | pytest and Ruff settings |

@@ -1,6 +1,6 @@
 # LeaveDesk — Database Schema (Capstone 3)
 
-**Version:** 1.1 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
+**Version:** 1.2 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
 
 This document explains what the database stores, which rules the database itself enforces,
 and why each design choice was made. The SQLAlchemy models (`leavedesk/db/models.py`) and the
@@ -298,10 +298,13 @@ CREATE INDEX ix_outbox_pending ON notification_outbox (available_at, id) WHERE s
 ```
 
 **Flow:** the notification row and its outbox row are inserted in the **same transaction** as the leave
-change. If that transaction rolls back, neither exists (DB-19). A worker claims rows with
-`FOR UPDATE SKIP LOCKED` (DB-20). An `AFTER INSERT` trigger on `notifications` calls
-`pg_notify('leavedesk_notifications', …)`; PostgreSQL delivers NOTIFY messages only when the transaction
-commits, so a rolled-back change never wakes the SSE stream (DB-21).
+change. If that transaction rolls back, neither exists (DB-23). A sender claims rows with
+`FOR UPDATE SKIP LOCKED`, so two senders never send the same row (DB-24). An `AFTER INSERT` trigger on
+`notifications` calls `pg_notify('leavedesk_notifications', '{"id": <public_id>, "tenant_id": <id>}')`;
+PostgreSQL delivers NOTIFY messages only when the transaction commits, so a rolled-back change never
+wakes the SSE stream (DB-23, DB-25). Senders: the API's background task right after each response, and
+the worker (`python -m leavedesk.worker`) for anything left over. Delivery is at-least-once; after 5
+failed attempts (back-off 2, 4, 8, 16 s) a row is marked `failed` (DB-26).
 
 ### 4.12 `idempotency_keys` (Part C)
 | Column | Type | Rules |
@@ -416,8 +419,8 @@ tenant tables, with the app setting `app.tenant_id` at the start of each transac
 | Revision | Branch / PR | Contents |
 |---|---|---|
 | `0001_initial_schema` | `feature/db-infra` | Extensions (`btree_gist`), tables 4.1–4.10, constraints, EXCLUDE, FK indexes, unread partial index, append-only triggers, revoke `UPDATE, DELETE` on the append-only tables, seed tenant `T-DEMO`, department `Engineering` and the three leave types |
-| `0002_idempotency_keys` | `feature/safe-approvals` | Table 4.12 |
-| `0003_notification_outbox` | `feature/db-notifications` | Table 4.11, outbox index, `pg_notify` trigger on `notifications` |
+| `0002_notification_outbox` | `feature/db-notifications` | Table 4.11, outbox index, `pg_notify` trigger on `notifications` |
+| `0003_idempotency_keys` | `feature/idempotency` | Table 4.12 |
 | `0004_query_indexes` | `feature/perf` | `pg_trgm` extension, the three indexes in 5.2, drop the redundant `ix_leave_requests_employee_id` |
 
 Every revision has a working `downgrade()`; DB-3 checks `upgrade head → downgrade base → upgrade head`.
@@ -448,3 +451,4 @@ Every revision has a working `downgrade()`; DB-3 checks `upgrade head → downgr
 |---|---|---|
 | 1.0 | 2026-11-16 | Initial schema for Capstone 3 |
 | 1.1 | 2026-11-16 | Section 6: grants come from default privileges set by the init script, revisions only revoke; 4.8: TRUNCATE note; section 8: revision 0001 contents updated to match the code. |
+| 1.2 | 2026-11-16 | Outbox built before idempotency, so revisions renumbered (0002 outbox, 0003 idempotency keys); 4.11 describes the real NOTIFY payload, the two senders and the retry policy, and cites the correct SPEC criteria (DB-23 to DB-26). |

@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from leavedesk.api.security import AuthenticationError, decode_access_token
 from leavedesk.api.state import AppState
+from leavedesk.db.outbox import deliver_pending
 from leavedesk.db.repository import PostgresLeaveRepository
 from leavedesk.domain.exceptions import NotAuthorisedError, NotFoundError
 from leavedesk.domain.inbox import Inbox
@@ -102,18 +103,45 @@ class BackgroundNotifier(Notifier):
         self._pending.append(notification)  # ...and every one joins the same batch
 
 
+class OutboxDrainNotifier(Notifier):
+    """PostgreSQL mode: the notifications are already in the outbox (saved by the
+    repository in this request's transaction). This only queues ONE background task
+    that drains the outbox after the response, so after the commit (SPEC BR-12)."""
+
+    channel = "outbox-drain"
+
+    def __init__(self, tasks: BackgroundTasks, state: AppState) -> None:
+        super().__init__()
+        self._tasks = tasks
+        self._state = state
+        self._queued = False
+
+    async def deliver(self, notification: Notification) -> None:
+        if self._queued:
+            return
+        assert self._state.session_factory is not None and self._state.tenant_pk is not None
+        self._tasks.add_task(
+            deliver_pending,
+            self._state.session_factory,
+            self._state.tenant_pk,
+            self._state.notifiers,
+        )
+        self._queued = True
+
+
 def get_service(state: StateDep, repo: RepoDep, background_tasks: BackgroundTasks) -> LeaveService:
     """A LeaveService for this request whose notifications are sent in the background.
 
     Background tasks run after the response, so in PostgreSQL mode they run
     after the commit: nobody is told about a change that was rolled back.
+    In-memory mode sends directly; PostgreSQL mode drains the transactional outbox.
     """
-    return LeaveService(
-        repo,
-        state.policies,
-        notifiers=[BackgroundNotifier(background_tasks, state.notifiers)],
-        clock=state.clock,
+    notifier: Notifier = (
+        BackgroundNotifier(background_tasks, state.notifiers)
+        if state.session_factory is None
+        else OutboxDrainNotifier(background_tasks, state)
     )
+    return LeaveService(repo, state.policies, notifiers=[notifier], clock=state.clock)
 
 
 ServiceDep = Annotated[LeaveService, Depends(get_service)]
