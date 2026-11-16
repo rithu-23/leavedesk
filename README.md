@@ -59,6 +59,8 @@ docker compose up -d db
 | Undo every migration | `alembic downgrade base` |
 | Run only the database tests | `python -m pytest tests/db` |
 | Run the **whole** suite on PostgreSQL (Day 2 tests included) | `scripts/pytest-postgres.sh` |
+| Concurrency tests (two users at once) | `python -m pytest tests/db/test_concurrency.py -v` |
+| Review demo: the same test **without** locks fails | `LEAVEDESK_DEMO_NO_LOCKS=1 python -m pytest tests/db/test_concurrency.py -k db10` |
 | Log every SQL statement (N+1 checks) | `DB_ECHO=true python -m uvicorn leavedesk.api.main:create_app --factory` |
 | Open a SQL prompt as the app role | `docker compose exec db psql -U leavedesk_app -d leavedesk` |
 

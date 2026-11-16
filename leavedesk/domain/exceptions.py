@@ -60,6 +60,10 @@ class ConcurrentUpdateError(LeaveDeskError):
         )
 
 
+class DatabaseBusyError(LeaveDeskError):
+    """A statement or lock timeout stopped the action; nothing was saved (BR-10, Capstone 3)."""
+
+
 class NotFoundError(LeaveDeskError):
     """An employee or leave request id does not exist."""
 

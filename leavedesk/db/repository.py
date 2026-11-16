@@ -179,6 +179,7 @@ class PostgresLeaveRepository(LeaveRepository):
             created_at=row.created_at,
             decided_by=row.decider.public_id if row.decider is not None else None,
             decision_note=row.decision_note,
+            version=row.version,
         )
 
     def _request_query(self) -> Any:
@@ -247,6 +248,7 @@ class PostgresLeaveRepository(LeaveRepository):
         row.decided_by = decided_by
         row.decision_note = request.decision_note
         await self._flush("LeaveRequest", request.id)
+        request.version = row.version  # SQLAlchemy bumped it in the UPDATE
 
     async def list_requests(
         self, employee_id: str | None = None, status: LeaveStatus | None = None

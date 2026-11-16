@@ -246,3 +246,23 @@
 4. **Seeding twice:** with a database, the start-up seeding would try to register the demo employees again on every restart. Made it check first (DB-2 also covers this).
 5. **Async rule vs a blocking call:** the login lookup uses a small sync connection pool, run in the thread pool together with Argon2id, which keeps the event loop free and keeps the unchanged API-28 test (which calls `find_by_email()` without `await`) working. Documented in `leavedesk/db/users.py`.
 6. **Safety of the test reset:** the reset empties tables, so it refuses to run unless `DATABASE_URL` names a database ending in `_test`.
+
+
+---
+
+## Entry 13 — Safe approvals (Capstone 3, task T19)
+
+**Prompt:** Make approvals safe under concurrency: one transaction with row locks (request, then balance), a `version` with an optional `If-Match` header (409 on a mismatch), 503 `DATABASE_BUSY` for lock and statement timeouts, and tests that fire two actions at the same moment, including a way to show the test failing without the locks.
+
+**Generated:** `version` on `LeaveRequest` and `LeaveRequestOut`; `expected_version` on approve/reject/cancel; the `If-Match` header; a `DBAPIError` handler (55P03, 57014, 40P01 -> 503 with `Retry-After`); `tests/db/test_concurrency.py` (DB-7, DB-10, DB-11, DB-15, DB-16 switch), `tests/api/test_versions_api.py` (DB-12, runs in both storage modes), `tests/db/support.py`.
+
+**Checked / changed:**
+- 152 passed in memory and 152 on PostgreSQL. `tests/db/test_concurrency.py` run five times in a row: all green each time.
+- `LEAVEDESK_DEMO_NO_LOCKS=1 pytest tests/db/test_concurrency.py -k db10` fails with "both approvals went through"; without the switch it passes. This is the review demo.
+- DB-15 really waits the app role's 2-second `lock_timeout`, then gets 503, and the request was rolled back (nothing listed).
+
+**Issues caught:**
+1. **A concurrency test that proved nothing:** the first DB-7 test (two overlapping submits at once) passed, but only because the balance lock made the two submits take turns, so the ordinary Python overlap check refused the second one. The EXCLUDE constraint was never exercised. Fixed by using two leave types (different balance rows, so the locks don't serialise them) and asserting on the message that only the EXCLUDE translation produces.
+2. **A flaky test:** even then, DB-7 depended on both submits running their overlap check before either saved, which is usual but not guaranteed, so it could fail now and then. A barrier in a test-only repository subclass forces that order, making the test deterministic (5/5 runs).
+3. **The demo needed the worst timing on purpose:** the unsafe repository waits on a barrier after reading, so both "managers" read the old values before either writes. Without it, the bug might not show up during the live demo.
+4. **An unsafe demo with half the protection still on:** turning off only the row lock would not show the bug, because the version check alone stops the second approval (with a 409). The demo repository writes with plain UPDATEs (no version check) to show the real lost-update bug; the regular code keeps both layers.

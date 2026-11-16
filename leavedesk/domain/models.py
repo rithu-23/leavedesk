@@ -91,6 +91,9 @@ class LeaveRequest(BaseModel):
     created_at: datetime = Field(default_factory=_utc_now)
     decided_by: str | None = None
     decision_note: str | None = None
+    # Goes up by one every time the request is saved (BR-10). Storage sets it;
+    # clients can send it back as If-Match to make sure nobody changed it meanwhile.
+    version: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def check_dates(self) -> Self:

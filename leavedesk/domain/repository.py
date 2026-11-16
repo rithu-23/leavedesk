@@ -45,7 +45,12 @@ class LeaveRepository(ABC):
 
     @abstractmethod
     async def save_request(self, request: LeaveRequest) -> None:
-        """Store changes to an existing request, or raise NotFoundError."""
+        """Store changes to an existing request, or raise NotFoundError.
+
+        Sets request.version to the new version (one higher), so the caller can
+        return it. Raises ConcurrentUpdateError if the stored row changed since it
+        was read (PostgreSQL implementation).
+        """
 
     @abstractmethod
     async def get_request(self, request_id: str, *, lock: bool = False) -> LeaveRequest:
@@ -127,6 +132,7 @@ class InMemoryLeaveRepository(LeaveRepository):
     async def save_request(self, request: LeaveRequest) -> None:
         if request.id not in self._requests:
             raise NotFoundError("LeaveRequest", request.id)
+        request.version = self._requests[request.id].version + 1  # the caller sees the new version
         self._requests[request.id] = deepcopy(request)
 
     async def get_request(self, request_id: str, *, lock: bool = False) -> LeaveRequest:

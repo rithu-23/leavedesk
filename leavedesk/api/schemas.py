@@ -53,6 +53,7 @@ class LeaveRequestOut(BaseModel):
     created_at: datetime
     decided_by: str | None
     decision_note: str | None
+    version: int  # v1.1: send back as If-Match on approve / reject / cancel
 
     @classmethod
     def from_domain(cls, request: LeaveRequest) -> Self:
