@@ -49,6 +49,17 @@ class NotAuthorisedError(LeaveDeskError):
     """The person is not allowed to take this action (BR-6)."""
 
 
+class ConcurrentUpdateError(LeaveDeskError):
+    """The row changed since it was read, so this change was not saved (BR-10, Capstone 3)."""
+
+    def __init__(self, entity: str, entity_id: str) -> None:
+        self.entity = entity
+        self.entity_id = entity_id
+        super().__init__(
+            f"{entity} '{entity_id}' was changed by someone else. Reload it and try again."
+        )
+
+
 class NotFoundError(LeaveDeskError):
     """An employee or leave request id does not exist."""
 

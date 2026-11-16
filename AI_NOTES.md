@@ -224,3 +224,25 @@
 7. **Init scripts run only once:** the postgres image runs `/docker-entrypoint-initdb.d` only on an empty data volume, so an existing Capstone 2 volume would never get the roles. README and the Compose header say to run `docker compose down -v` first.
 8. **Optimistic locking was silently switched off (the most serious one):** the generated models had `__mapper_args__ = {"version_id_col": "version"}`. SQLAlchemy accepted the string without any error or warning, but `mapper.version_id_col` stayed the string `"version"` instead of the column, so no version check would ever happen and DB-12/DB-13 could never pass. Found by inspecting the configured mapper. Fixed by referencing the column object (`{"version_id_col": version}`, placed after the column), and added `test_version_columns_are_wired_for_optimistic_locking`, confirmed to fail with the old line and pass with the fix.
 9. **Port clash found only on the real machine:** on the Mac, `docker compose up -d db` failed with "address already in use" on 5432, and Alembic then reached a *different* PostgreSQL (version 18, installed in August with the postgresql.org installer, running as the `postgres` user), so the error looked like a wrong password. Plain `lsof` showed nothing because that server belongs to another macOS user; `ps aux` and `sudo lsof` found it. Fixed by publishing the Docker database on host port 5433 (containers still use `db:5432`) and updating `.env.example` and the README to match. Lesson: "password authentication failed" can mean "connected to the wrong server".
+
+
+---
+
+## Entry 12 — PostgreSQL repository and wiring (Capstone 3, task T18)
+
+**Prompt:** Implement `PostgresLeaveRepository` behind the existing async `LeaveRepository` interface, store logins in the database, open one session and transaction per request, translate database errors into domain errors, and make the unchanged Day 2 tests pass on PostgreSQL.
+
+**Generated:** `leavedesk/db/repository.py`, `leavedesk/db/users.py`, `RepoDep` in `leavedesk/api/deps.py`, PostgreSQL mode in `create_app`, `ConcurrentUpdateError` (409), `save_balance(..., request_id=)` so ledger rows name their request, a repo-root `conftest.py` and `scripts/pytest-postgres.sh`, and `tests/db/test_repository.py` (DB-2, DB-9, DB-13, EXCLUDE mapping, N+1).
+
+**Checked / changed:**
+- `pytest`: 142 passed in memory. `scripts/pytest-postgres.sh`: the same 142 passed on PostgreSQL, including the 40 Day 2 API test files, which are unchanged (DB-1).
+- Confirmed the API tests really used PostgreSQL by reading the ledger rows a test left behind: grant, reserve and confirm rows, each linked to its request, exactly as SCHEMA.md 4.8 describes.
+- Ran uvicorn against PostgreSQL: applied, approved, restarted the server, and the request was still approved; start-up logged `demo_data=already present` on the second run.
+
+**Issues caught:**
+1. **The unchanged Day 2 tests caught a contract change:** `numeric(5,1)` returns `Decimal("3.0")`, so balances came back as `"3.0"` instead of `"3"`. The obvious fix, `Decimal.normalize()`, turns `10.0` into `1E+1`; used a helper that keeps whole numbers whole and half days as `x.5`.
+2. **Commit timing:** a normal `yield` dependency in FastAPI finishes *after* the response is sent, so a client could get `201` for a change whose commit later failed, or read stale data with its next request. Used `Depends(get_repository, scope="function")`, which commits before the response (FastAPI 0.121+; requirements pinned).
+3. **Autoflush skipped the error translation:** `save_request` changed the row and then looked up the decider's id. That lookup is a query, SQLAlchemy flushed first, and the version check raised `StaleDataError` outside the `try`, as a 500 instead of 409. Found by the DB-13 test; fixed by doing every lookup before changing the row.
+4. **Seeding twice:** with a database, the start-up seeding would try to register the demo employees again on every restart. Made it check first (DB-2 also covers this).
+5. **Async rule vs a blocking call:** the login lookup uses a small sync connection pool, run in the thread pool together with Argon2id, which keeps the event loop free and keeps the unchanged API-28 test (which calls `find_by_email()` without `await`) working. Documented in `leavedesk/db/users.py`.
+6. **Safety of the test reset:** the reset empties tables, so it refuses to run unless `DATABASE_URL` names a database ending in `_test`.

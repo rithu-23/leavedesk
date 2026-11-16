@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 
-from leavedesk.api.deps import CurrentEmployee, ServiceDep, StateDep, ensure_self_or_manager
+from leavedesk.api.deps import CurrentEmployee, RepoDep, ServiceDep, ensure_self_or_manager
 from leavedesk.api.schemas import BalanceOut, LeaveRequestCreate, LeaveRequestOut, Page, RejectBody
 from leavedesk.domain.exceptions import NotAuthorisedError
 from leavedesk.domain.models import LeaveStatus
@@ -14,9 +14,9 @@ router = APIRouter(tags=["leave"])
 
 @router.get("/employees/{employee_id}/balance")
 async def get_balance(
-    employee_id: str, me: CurrentEmployee, state: StateDep, service: ServiceDep
+    employee_id: str, me: CurrentEmployee, repo: RepoDep, service: ServiceDep
 ) -> list[BalanceOut]:
-    target = await state.repository.get_employee(employee_id)  # 404 first
+    target = await repo.get_employee(employee_id)  # 404 first
     ensure_self_or_manager(me, target)  # then 403
     balances = await service.get_balances(target.id)
     return [BalanceOut.from_domain(b) for b in balances.values()]
@@ -35,25 +35,21 @@ async def apply_for_leave(
 @router.get("/leave-requests")
 async def list_leave_requests(
     me: CurrentEmployee,
-    state: StateDep,
+    repo: RepoDep,
     status_filter: Annotated[LeaveStatus | None, Query(alias="status")] = None,
     employee_id: str | None = None,
     sort: Literal["start_date", "-start_date"] = "start_date",
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[LeaveRequestOut]:
-    reports = {e.id for e in await state.repository.list_employees() if e.manager_id == me.id}
+    reports = {e.id for e in await repo.list_employees() if e.manager_id == me.id}
     visible = {me.id} | reports
     if employee_id is not None:
         if employee_id not in visible:
             raise NotAuthorisedError(f"{me.id} may not list requests of {employee_id}.")
         visible = {employee_id}
 
-    items = [
-        r
-        for r in await state.repository.list_requests(status=status_filter)
-        if r.employee_id in visible
-    ]
+    items = [r for r in await repo.list_requests(status=status_filter) if r.employee_id in visible]
     items.sort(key=lambda r: r.start_date, reverse=sort == "-start_date")
     page = items[offset : offset + limit]
     return Page(
@@ -65,11 +61,9 @@ async def list_leave_requests(
 
 
 @router.get("/leave-requests/{request_id}")
-async def get_leave_request(
-    request_id: str, me: CurrentEmployee, state: StateDep
-) -> LeaveRequestOut:
-    request = await state.repository.get_request(request_id)
-    ensure_self_or_manager(me, await state.repository.get_employee(request.employee_id))
+async def get_leave_request(request_id: str, me: CurrentEmployee, repo: RepoDep) -> LeaveRequestOut:
+    request = await repo.get_request(request_id)
+    ensure_self_or_manager(me, await repo.get_employee(request.employee_id))
     return LeaveRequestOut.from_domain(request)
 
 

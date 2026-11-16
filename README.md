@@ -58,12 +58,20 @@ docker compose up -d db
 | Check the models match the database | `alembic check` |
 | Undo every migration | `alembic downgrade base` |
 | Run only the database tests | `python -m pytest tests/db` |
+| Run the **whole** suite on PostgreSQL (Day 2 tests included) | `scripts/pytest-postgres.sh` |
+| Log every SQL statement (N+1 checks) | `DB_ECHO=true python -m uvicorn leavedesk.api.main:create_app --factory` |
 | Open a SQL prompt as the app role | `docker compose exec db psql -U leavedesk_app -d leavedesk` |
 
 The two database roles (SCHEMA.md section 6): `leavedesk_migrator` owns the schema and runs Alembic;
 `leavedesk_app` is what the API uses and cannot change the schema. Their passwords and URLs live in
 `.env` (see `.env.example`). The tests in `tests/db` use the separate `leavedesk_test` database and
 are skipped when `TEST_DATABASE_URL` / `TEST_MIGRATION_DATABASE_URL` are not set.
+
+**Storage switch:** with `DATABASE_URL` set (as in `.env` and in Docker), the API uses PostgreSQL;
+without it, the in-memory repository. `python -m pytest` runs the suite in memory;
+`scripts/pytest-postgres.sh` runs the same tests, unchanged, against `leavedesk_test`. The repo-root
+`conftest.py` migrates that database once and empties its tables before each test, and refuses to
+run against any database whose name does not end in `_test`.
 
 ## Project structure
 
@@ -76,11 +84,12 @@ are skipped when `TEST_DATABASE_URL` / `TEST_MIGRATION_DATABASE_URL` are not set
 | `leavedesk/api/errors.py` | The single error format and exception handlers |
 | `leavedesk/api/middleware.py` | Request ID and request logging |
 | `leavedesk/api/stream.py` | Live notifications over Server-Sent Events |
-| `leavedesk/db/` | SQLAlchemy models, engine and (from Step 5) the PostgreSQL repository |
+| `leavedesk/db/` | SQLAlchemy models, engine, the PostgreSQL repository and login store |
 | `migrations/`, `alembic.ini` | Alembic migrations (the only way the schema changes) |
 | `docker/postgres-init/` | Creates the migrator and app roles and the test database on first start |
 | `leavedesk/demo.py` | Day 1 demo of the happy path and every edge case |
 | `tests/` | Domain tests; `tests/api/` holds the API tests; `tests/db/` needs PostgreSQL |
+| `conftest.py`, `scripts/pytest-postgres.sh` | Run the whole suite on the PostgreSQL test database |
 | `SPEC.md`, `API_SPEC.md`, `SCHEMA.md` | Specifications, acceptance criteria and the database design |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
 | `Dockerfile`, `docker-compose.yml` | Container image and the `db`, `migrate` and `api` services |

@@ -59,8 +59,12 @@ class LeaveRepository(ABC):
 
     # ----- Balances -----
     @abstractmethod
-    async def save_balance(self, balance: LeaveBalance) -> None:
-        """Create or update a balance."""
+    async def save_balance(self, balance: LeaveBalance, *, request_id: str | None = None) -> None:
+        """Create or update a balance.
+
+        request_id names the leave request that caused the change (None for the initial
+        grant). The PostgreSQL repository records it on the ledger row (SCHEMA.md 4.8).
+        """
 
     @abstractmethod
     async def get_balance(
@@ -142,7 +146,7 @@ class InMemoryLeaveRepository(LeaveRepository):
         return [deepcopy(request) for request in sorted(matches, key=lambda r: r.start_date)]
 
     # ----- Balances -----
-    async def save_balance(self, balance: LeaveBalance) -> None:
+    async def save_balance(self, balance: LeaveBalance, *, request_id: str | None = None) -> None:
         self._balances[(balance.employee_id, balance.leave_type)] = deepcopy(balance)
 
     async def get_balance(

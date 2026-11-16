@@ -1,6 +1,6 @@
 # Libraries the app needs to run.
 pydantic>=2.9
-fastapi>=0.115
+fastapi>=0.121          # Depends(scope="function"): commit before the response is sent
 uvicorn[standard]>=0.32
 pydantic-settings>=2.6
 pyjwt>=2.9

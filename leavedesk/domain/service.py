@@ -101,7 +101,7 @@ class LeaveService:
         # All checks passed: now save.
         request.days = days
         await self._repo.add_request(request)
-        await self._repo.save_balance(balance)
+        await self._repo.save_balance(balance, request_id=request.id)
 
         notices = [
             Notification(
@@ -134,7 +134,7 @@ class LeaveService:
         request.decided_by = approver_id
 
         await self._repo.save_request(request)
-        await self._repo.save_balance(balance)
+        await self._repo.save_balance(balance, request_id=request.id)
         await self._emit(
             [
                 Notification(
@@ -164,7 +164,7 @@ class LeaveService:
         request.decision_note = note.strip()
 
         await self._repo.save_request(request)
-        await self._repo.save_balance(balance)
+        await self._repo.save_balance(balance, request_id=request.id)
         await self._emit(
             [
                 Notification(
@@ -192,7 +192,7 @@ class LeaveService:
         request.status = LeaveStatus.CANCELLED
 
         await self._repo.save_request(request)
-        await self._repo.save_balance(balance)
+        await self._repo.save_balance(balance, request_id=request.id)
         if employee.manager_id:
             await self._emit(
                 [

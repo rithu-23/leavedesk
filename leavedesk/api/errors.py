@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from leavedesk.api.security import AuthenticationError
 from leavedesk.domain.exceptions import (
+    ConcurrentUpdateError,
     InsufficientBalanceError,
     InvalidLeaveRequestError,
     InvalidTransitionError,
@@ -27,6 +28,7 @@ logger = logging.getLogger("leavedesk.api")
 DOMAIN_ERRORS: list[tuple[type[LeaveDeskError], int, str]] = [
     (OverlappingLeaveError, 409, "OVERLAPPING_LEAVE"),
     (InvalidTransitionError, 409, "INVALID_TRANSITION"),
+    (ConcurrentUpdateError, 409, "CONCURRENT_UPDATE"),  # Capstone 3 (API_SPEC v1.1)
     (InsufficientBalanceError, 422, "INSUFFICIENT_BALANCE"),
     (InvalidLeaveRequestError, 422, "INVALID_LEAVE_REQUEST"),
     (NotAuthorisedError, 403, "FORBIDDEN"),
