@@ -60,6 +60,17 @@ class ConcurrentUpdateError(LeaveDeskError):
         )
 
 
+class IdempotencyKeyReusedError(LeaveDeskError):
+    """An Idempotency-Key was sent again with a different request body (BR-11, Capstone 3)."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        super().__init__(
+            "This Idempotency-Key was already used with a different request. "
+            "Use a new key for a new request."
+        )
+
+
 class DatabaseBusyError(LeaveDeskError):
     """A statement or lock timeout stopped the action; nothing was saved (BR-10, Capstone 3)."""
 

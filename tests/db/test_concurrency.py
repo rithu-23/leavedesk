@@ -258,3 +258,44 @@ def test_db15_lock_timeout_returns_503_and_saves_nothing(
     assert response.json()["error"]["code"] == "DATABASE_BUSY"
     assert response.headers["retry-after"] == "1"
     assert client.get("/leave-requests", headers=ana).json()["total"] == 0  # rolled back
+
+
+# ---------- DB-21: the same Idempotency-Key twice at the same moment ----------
+
+
+async def test_db21_same_key_at_once_waits_for_the_first_and_replays_it(
+    client: TestClient, app_database_url: str
+) -> None:
+    """The first request holds the key's advisory lock until it commits; the second waits
+    on it, then finds the stored response instead of creating a second request."""
+    from leavedesk.domain.repository import StoredResponse
+
+    stored = StoredResponse("hash-1", 201, {"id": "LR-first"})
+    first_holds_lock = asyncio.Event()
+
+    async with sessions(app_database_url) as (tenant_pk, factory):
+
+        async def first() -> object:
+            async with factory() as session, session.begin():
+                repo = PostgresLeaveRepository(session, tenant_pk)
+                assert await repo.claim_idempotency_key("E-ANA", "k-3") is None
+                first_holds_lock.set()
+                service = LeaveService(repo, default_policies(), clock=lambda: TODAY)
+                request = await service.apply(
+                    "E-ANA", LeaveType.ANNUAL, nov(11), nov(13), "Family trip to Ooty"
+                )
+                await asyncio.sleep(0.3)  # keep the lock a while: the second must wait
+                await repo.save_idempotency_key("E-ANA", "k-3", stored, request.id)
+            return "created"
+
+        async def second() -> object:
+            await first_holds_lock.wait()
+            async with factory() as session, session.begin():
+                repo = PostgresLeaveRepository(session, tenant_pk)
+                return await repo.claim_idempotency_key("E-ANA", "k-3")  # blocks, then sees it
+
+        results = await asyncio.gather(first(), second())
+
+    assert results == ["created", stored]
+    ana = auth_headers(client, "ana@leavedesk.test")
+    assert client.get("/leave-requests", headers=ana).json()["total"] == 1

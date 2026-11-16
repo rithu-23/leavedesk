@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -33,6 +33,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from leavedesk.db.models import (
     EmployeeRow,
+    IdempotencyKeyRow,
     LeaveBalanceRow,
     LeaveLedgerRow,
     LeaveRequestRow,
@@ -55,7 +56,7 @@ from leavedesk.domain.models import (
     NotificationEvent,
     Role,
 )
-from leavedesk.domain.repository import LeaveRepository
+from leavedesk.domain.repository import LeaveRepository, StoredResponse
 
 EXCLUSION_VIOLATION = "23P01"
 
@@ -411,6 +412,49 @@ class PostgresLeaveRepository(LeaveRepository):
             self._notification_rows[row.public_id] = row
             notifications.append(self._to_notification(row))
         return notifications
+
+    # ------------------------------------------------------ idempotency keys
+
+    async def claim_idempotency_key(self, employee_id: str, key: str) -> StoredResponse | None:
+        """Lock the key for this transaction (advisory lock), then look it up.
+
+        pg_advisory_xact_lock is a lock on a number, not on a row, so it works even
+        before the row exists. Two requests with the same key: the second waits here
+        until the first commits (or rolls back), then finds its stored response
+        (SPEC DB-21). The lock is released automatically at the end of the transaction.
+        """
+        employee_pk = await self._employee_pk(employee_id)
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+            {"lock_key": f"idempotency:{self._tenant_id}:{employee_pk}:{key}"},
+        )
+        row = await self._session.scalar(
+            select(IdempotencyKeyRow).where(
+                IdempotencyKeyRow.tenant_id == self._tenant_id,
+                IdempotencyKeyRow.employee_id == employee_pk,
+                IdempotencyKeyRow.key == key,
+            )
+        )
+        if row is None:
+            return None
+        return StoredResponse(row.request_hash, row.response_status, row.response_body)
+
+    async def save_idempotency_key(
+        self, employee_id: str, key: str, response: StoredResponse, request_id: str
+    ) -> None:
+        request_row = self._request_rows.get(request_id) or await self._request_row(request_id)
+        self._session.add(
+            IdempotencyKeyRow(
+                tenant_id=self._tenant_id,
+                employee_id=await self._employee_pk(employee_id),
+                key=key,
+                request_hash=response.request_hash,
+                leave_request_id=request_row.id,
+                response_status=response.status,
+                response_body=response.body,
+            )
+        )
+        await self._session.flush()
 
 
 def _entry_type(entitlement_delta: Decimal, used_delta: Decimal, pending_delta: Decimal) -> str:
