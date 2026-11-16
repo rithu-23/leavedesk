@@ -156,3 +156,24 @@
 **Issues caught:**
 1. **Missing .dockerignore:** the build log showed `.dockerignore` transferring only 2 bytes: the file had not been created, and the failed `git add` also meant nothing was committed (GitHub rejected the PR with "No commits between main and feature/docker"). The image itself was safe, because the Dockerfile copies only `requirements.txt` and `leavedesk/`, but `.env` was still being sent to Docker as part of the build context. Created `.dockerignore` and confirmed the build context step now reads it.
 2. **Unpinned database image:** `postgres` (latest) can jump a major version and change its data layout; pinned `postgres:17`.
+
+
+---
+
+## Entry 9 — Capstone 3 spec: SPEC.md v1.3, API_SPEC.md v1.1, SCHEMA.md (task T14)
+
+**Prompt:** Plan Capstone 3 (PostgreSQL) from the workshop plan, then write the spec first: business rules and Given/When/Then criteria for the database work, the API contract changes, and a SCHEMA.md justifying keys, lookup table vs ENUM vs CHECK, `numeric(5,1)` and `timestamptz`.
+
+**Generated:** A 13-step plan; SPEC.md section 12 (FR-12 to FR-18, DB-1 to DB-34) and BR-9 to BR-13; API_SPEC.md v1.1 (Idempotency-Key, If-Match and `version`, keyset pagination, three new error codes, outbox delivery); SCHEMA.md (12 tables, constraints, ERD, index plan, roles, migrations, review checklist).
+
+**Checked / changed:**
+- Compared every Capstone 3 bullet in the workshop plan (Parts A, B, C, C2, D and "Done when") with the spec; each one maps to at least one DB-n criterion or a SCHEMA.md section.
+- Checked that every new API feature is additive, so API-1 to API-28 can pass unchanged: new fields (`version`, `next_cursor`), optional headers, and `offset` still working. Searched the Day 2 tests for exact-dictionary comparisons of responses that a new field would break; none compare a whole `LeaveRequestOut`.
+- Asked the trainer whether the repository may change from sync to async. Answer: async for I/O such as API calls and background work, sync for plain logic, and changing Capstone 1–2 code to fit is fine. Database queries are I/O, so the repository becomes async (task T15).
+
+**Issues caught:**
+1. **AI recommendation that ignored the requirement:** the first plan suggested keeping the domain's text ids (`LR-1a2b3c4d`) as primary keys. The workshop plan asks to justify *identity vs UUIDv7*, and text ids are neither. Changed to identity primary keys with a separate `public_id` column, so the API is unchanged and the required comparison is answered in SCHEMA.md 2.1.
+2. **AI reasoning that didn't match the trainer:** the first plan recommended a sync SQLAlchemy session to avoid changing the repository interface. The trainer's guidance (async for I/O, changes allowed) removed that reason; switched to `AsyncSession`.
+3. **Plan item that broke a requirement:** the first plan listed the outbox worker as something to cut if time was short, but the workshop plan names the worker as a requirement. Removed it from the cut list.
+4. **Index plan that would have defeated the "Done when":** foreign key indexes required by Part A (on `leave_requests.employee_id`) would already serve two of the three PERF queries, so their "before" plans would never show a sequential scan. Documented the method in SCHEMA.md 5.2: capture "before" plans with the index dropped inside a rolled-back transaction (PostgreSQL DDL is transactional), and replace the single-column FK index with the composite history index, which also covers the foreign key.
+5. **Notifications needed earlier than planned:** the first plan put the `notifications` table in a later revision, but the Day 2 notification tests must pass on PostgreSQL as soon as the repository is swapped in. Moved `notifications` into revision 0001; only the outbox comes later.

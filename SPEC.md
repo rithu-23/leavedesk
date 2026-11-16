@@ -1,6 +1,8 @@
 # LeaveDesk — Specification
 
-**Version:** 1.0 (Capstone 1) · **Status:** Draft · **Author:** Rithu
+**Version:** 1.3 (Capstone 3) · **Status:** Draft · **Author:** Rithu
+
+Companion documents: `API_SPEC.md` (REST contract) and `SCHEMA.md` (database design).
 
 ---
 
@@ -23,6 +25,20 @@ It keeps every employee's leave balance correct and notifies the right people at
 - Public holidays: only Saturdays and Sundays are non-working days.
 - Carrying unused leave into the next year.
 - Splitting a half day into morning and afternoon.
+
+### 2.3 In scope (Capstone 3)
+- PostgreSQL storage through SQLAlchemy 2 (async, psycopg 3) and Alembic migrations, behind the same `LeaveRepository` interface. The in-memory repository stays for fast domain tests.
+- The database enforces the leave rules it can: date checks, overlap (EXCLUDE constraint), balance limits, uniqueness (see `SCHEMA.md`).
+- Safe concurrent actions: row locks, optimistic locking with a version column, idempotent submit.
+- Notifications stored in the database and delivered through a transactional outbox, a `SKIP LOCKED` worker and `LISTEN/NOTIFY`.
+- Login lockout, separate migration and app database roles, query timeouts.
+- Indexes proven with `EXPLAIN (ANALYZE, BUFFERS)` on about 100,000 seeded requests (`PERF.md`), and keyset pagination.
+
+### 2.4 Out of scope (Capstone 3)
+- More than one tenant at run time: every table carries `tenant_id`, but the app runs a single tenant (`T-DEMO`, from the `TENANT_ID` setting).
+- Refresh tokens, password reset, rate limiting by IP address.
+- Backups, restore tests and data masking (take-home topics in the workshop plan).
+- Row-level security (stretch goal only).
 
 ---
 
@@ -152,6 +168,36 @@ Two date ranges overlap when `new.start ≤ existing.end` **and** `existing.star
 ### BR-8 Audit and timing
 - Every LeaveService action is logged: the action name, the request involved, and whether it succeeded or failed.
 - The duration of each action is measured and logged.
+- From Capstone 3, each successful state change also writes an `audit_log` row in the same database transaction (SCHEMA.md 4.9).
+
+### BR-9 Storage keeps the rules (Capstone 3)
+- The database rejects data that breaks a rule even if the application has a bug: end date before start date, a half day across two dates, a reason outside 10–500 characters, an unknown status, a day count that is not a whole or half number, `used + pending` above the entitlement, and a duplicate email (case-insensitive) within a tenant.
+- Two pending or approved requests of the same employee can never overlap, even when they are submitted at the same moment (EXCLUDE constraint).
+- Every balance movement is recorded in an append-only ledger. For each employee and leave type, the stored balance always equals the sum of the ledger movements (BR-4 table, SCHEMA.md 2.6).
+
+### BR-10 Concurrent actions are safe (Capstone 3)
+- Each action (apply, approve, reject, cancel, mark read) runs in one database transaction: either every change is saved or none is.
+- Approve, reject and cancel lock the request and then its balance; apply locks the balance. Locks are always taken in that order.
+- Each request and balance has a `version` number that goes up by one on every change. A change based on an older version is refused with `ConcurrentUpdateError`.
+- A client may send the request's version with approve, reject or cancel (`If-Match`); if it no longer matches, the action is refused with `ConcurrentUpdateError` and nothing changes.
+- A query that runs longer than 5 seconds, or waits more than 2 seconds for a lock, is stopped and the action fails with `DatabaseBusyError`; nothing is saved.
+
+### BR-11 Submitting is idempotent (Capstone 3)
+- A client may send an `Idempotency-Key` (1–255 characters) when submitting a request.
+- The same employee repeating the same key with the same body gets the first result again; no second request is created and no extra days are reserved.
+- Repeating a key with a different body is refused with `IdempotencyKeyReusedError`.
+- A submit that fails stores nothing, so it can be retried with the same key. Keys are scoped to one employee.
+
+### BR-12 Notifications are never lost or phantom (Capstone 3)
+- The notification rows for an action and their outbox entries are saved in the same transaction as the action. If the action is rolled back, no notification exists and nothing is sent.
+- Each outbox entry is sent exactly once, even with several workers running. A failed send is retried up to 5 times with a growing delay, then marked `failed`; the leave action is never undone (BR-7 still holds).
+- When a notification is saved, the recipient's open stream receives it straight away (`LISTEN/NOTIFY`), without polling.
+- From Capstone 3, `submitted` notifications go through the outbox too, so every BR-7 event follows the same path.
+
+### BR-13 Login lockout (Capstone 3)
+- After 5 wrong passwords in a row, the account is locked for 15 minutes (`LOGIN_MAX_ATTEMPTS`, `LOGIN_LOCK_MINUTES`).
+- While locked, every login attempt, even with the right password, gets the same generic error as a wrong password, so an attacker cannot tell whether an account exists or is locked.
+- A successful login resets the count. Unknown emails take the same time and give the same error.
 
 ---
 
@@ -159,6 +205,7 @@ Two date ranges overlap when `new.start ≤ existing.end` **and** `existing.star
 - "Today" is given to LeaveService from outside rather than read from the computer clock, so the demo and tests give the same results on any day.
 - Each employee has at most one manager.
 - All requests fall within a single leave year.
+- Capstone 3 runs a single tenant (`T-DEMO`); multi-tenant data is supported by the schema, not by the API.
 
 ---
 
@@ -277,7 +324,7 @@ Each leave type enforces its own rule.
 
 All LeaveDesk errors inherit from one base error, `LeaveDeskError`, so callers can catch one specific error or all of them at once.
 
-| Error | Raised by | When | Planned HTTP status (Capstone 2) |
+| Error | Raised by | When | HTTP status (API_SPEC.md 5) |
 |---|---|---|---|
 | `ValidationError` *(from Pydantic)* | Models | Input is badly formed (section 9.2) | 422 |
 | `InvalidLeaveRequestError` | Policies, LeaveService | The request or action breaks a rule: no working days, policy rule (BR-3), half day on a weekend, rejection without a note | 422 |
@@ -286,6 +333,9 @@ All LeaveDesk errors inherit from one base error, `LeaveDeskError`, so callers c
 | `InvalidTransitionError` | LeaveService | The status change is not allowed (BR-6) | 409 |
 | `NotAuthorisedError` | LeaveService | The person is not allowed to take this action (BR-6) | 403 |
 | `NotFoundError` | Repository, LeaveService | An employee or request id does not exist | 404 |
+| `ConcurrentUpdateError` *(Capstone 3)* | Repository, API | The row changed since it was read (stale `version` or `If-Match`) | 409 |
+| `IdempotencyKeyReusedError` *(Capstone 3)* | API | An `Idempotency-Key` is repeated with a different body | 422 |
+| `DatabaseBusyError` *(Capstone 3)* | Repository | `statement_timeout` or `lock_timeout` reached | 503 |
 
 ---
 
@@ -358,9 +408,114 @@ Rules that need other data (balance, overlap, policies, who may act) are checked
 
 ---
 
-## 12. Change log
+## 12. Capstone 3 requirements and acceptance criteria
+
+The cast and "today" match section 6. "Directly in SQL" means a statement run against the database
+without going through LeaveService, to prove the database itself enforces the rule. Tests marked
+*(concurrent)* start two actions at the same time on separate database connections.
+
+### FR-12 Durable storage (BR-9; Part A)
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| DB-1 *(happy path)* | Migrations at head, `DATABASE_URL` pointing at the test database | The unchanged Day 2 API test files run | All API-1 to API-28 pass, as they do on the in-memory repository |
+| DB-2 | Ana has a pending request | The API process is restarted | The request and her balance are still there |
+| DB-3 | An empty database | `alembic upgrade head`, then `downgrade base`, then `upgrade head` | Every step succeeds; the final schema matches the models (`alembic check` reports no changes) |
+
+### FR-13 Rules enforced by the database (BR-9; Part A.3–A.5)
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| DB-4 | — | A request with end date 11 Nov and start date 13 Nov is inserted directly in SQL | Refused by a CHECK constraint (SQLSTATE `23514`) |
+| DB-5 | Ana exists as `ana@leavedesk.test` | An employee with `ANA@LeaveDesk.test` is inserted in the same tenant; then in a second tenant | First refused (`23505`); second accepted |
+| DB-6 | Ana has a pending request 11–13 Nov | An overlapping pending request (13 Nov) is inserted directly in SQL; then one overlapping a *cancelled* request | First refused by the EXCLUDE constraint (`23P01`); second accepted |
+| DB-7 *(concurrent)* | Ana has no requests | Two `POST /leave-requests` for 11–13 Nov and 12–13 Nov arrive at the same time | Exactly one 201; the other 409 `OVERLAPPING_LEAVE`; one row in the database |
+| DB-8 | A ledger row exists | The app role tries `UPDATE` and `DELETE` on `leave_ledger`; the migration role tries `UPDATE` | App role: permission denied (`42501`); migration role: refused by the append-only trigger |
+| DB-9 | Ana applies twice, Mo approves one, Ana cancels the other | Balances are compared with the ledger | For every leave type, `entitlement`, `used` and `pending` equal the sums of the ledger deltas |
+| DB-30 | Migrations at head | The catalog (`pg_constraint`, `pg_index`) is checked | Every foreign key column is the first column of at least one index |
+
+### FR-14 Safe approvals (BR-10; Part C)
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| DB-10 *(concurrent)* | Ana has a pending 3-day annual request | Mo approves it twice at the same moment (two tabs) | Exactly one 200; the other 409 `INVALID_TRANSITION`; `used` increases by 3 once; exactly one `confirm` ledger row |
+| DB-11 *(concurrent)* | Ana has 3 annual days available | Two 2-day annual requests (non-overlapping dates) are submitted at the same moment | Exactly one 201; the other 422 `INSUFFICIENT_BALANCE`; `pending` is 2, never 4 |
+| DB-12 | Ana's pending request has `version` 1, then is changed (so it is now 2) | Mo approves with `If-Match: 1` | 409 `CONCURRENT_UPDATE`; status, balance and ledger unchanged |
+| DB-13 | Two sessions load the same request; the first saves a change | The second saves its own change | `ConcurrentUpdateError` (SQLAlchemy `StaleDataError` underneath); the first change is kept |
+| DB-14 | Connected as the app role | `SHOW statement_timeout`, `SHOW lock_timeout` | `5s` and `2s` |
+| DB-15 | Another transaction holds a lock on Ana's balance for longer than 2 seconds | Ana submits a request | 503 `DATABASE_BUSY` with a `Retry-After` header; nothing saved |
+| DB-16 | The concurrency test of DB-10 with locking and version checks switched off (test-only flag) | Mo approves twice at the same moment | The test shows the bug: both succeed and `used` increases by 6. This is the "fails without the lock" demonstration for the review |
+
+### FR-15 Idempotent submit (BR-11; Part C)
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| DB-17 *(happy path)* | — | Ana submits the same body twice with `Idempotency-Key: k-1` | Both 201 with the same request `id`; the second has `Idempotent-Replayed: true`; one row; 3 days reserved, not 6 |
+| DB-18 | Ana used `k-1` for 11–13 Nov | She sends `k-1` with 16–17 Nov | 422 `IDEMPOTENCY_KEY_REUSED`; nothing saved |
+| DB-19 | Ana's submit with `k-2` failed with 409 (overlap) | The overlapping request is cancelled and she retries with `k-2` and the same body | 201 (the failed attempt stored nothing) |
+| DB-20 | Ana used `k-1` | Mo submits his own request with `k-1` | 201; keys are scoped per employee |
+| DB-21 *(concurrent)* | — | Ana sends the same body with `k-3` twice at the same moment | Both 201 with the same `id`; one row |
+
+### FR-16 Notifications through the database (BR-12; Part C2)
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| DB-22 *(happy path)* | Ana has a pending request | Mo approves it | In the same transaction: the request is approved, one `approved` notification for Ana and one outbox row with status `pending` are stored |
+| DB-23 | Ana has a pending request | An approval is forced to fail after its notifications are written (test raises before commit) | The transaction rolls back: request still pending, no new notification, no outbox row, no NOTIFY sent |
+| DB-24 *(concurrent)* | 20 pending outbox rows | Two workers claim batches at the same moment | Every row is sent exactly once (no duplicates, none missed); all end with status `sent` |
+| DB-25 | Mo has an open stream | A notification for Mo is committed | It arrives on Mo's stream within 1 second, through `LISTEN`, with no polling loop in the code |
+| DB-26 | The email notifier fails | The worker processes the row | `attempts` becomes 1, `available_at` moves later, status stays `pending`; after the 5th failure, status is `failed` |
+
+### FR-17 Login and database security (BR-13; Part D)
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| DB-27 | Ana's account | 5 wrong passwords, then the right one | All six get 401 `Invalid email or password`; `locked_until` is set; an `auth.lockout` audit row exists |
+| DB-28 | Ana is locked | The lock period passes (clock moved in the test), then the right password | 200; `failed_login_count` is back to 0 |
+| DB-29 | Connected as the app role | `CREATE TABLE x (id int)` | Permission denied (`42501`) |
+
+### FR-18 Performance and pagination (Part B)
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| DB-31 | About 100,000 seeded requests, `ANALYZE` run | The manager's pending queue, an employee's history and the name search are explained before and after revision 0004 | Each "before" plan shows a sequential scan; each "after" plan uses the new index; both plans and timings are in `PERF.md` |
+| DB-32 *(happy path)* | Ana has 45 requests | She walks `GET /leave-requests?limit=20` following `next_cursor` | Pages of 20, 20 and 5; every request exactly once, in order; the last page has `next_cursor: null` |
+| DB-33 | Ana is on page 1 of a cursor walk | A new request with an earlier start date is added, then she fetches page 2 | No row is repeated or skipped from the original set (OFFSET would repeat one) |
+| DB-34 | — | `cursor` and `offset=20` are both sent | 422 `VALIDATION_ERROR` |
+
+---
+
+## 13. Task breakdown (Capstone 3)
+
+| Task | What | Implements | Files | Branch / PR |
+|---|---|---|---|---|
+| T14 | This spec update, API_SPEC v1.1, SCHEMA.md, AI notes | All of section 12 | `SPEC.md`, `API_SPEC.md`, `SCHEMA.md`, `AI_NOTES.md` | `docs/capstone3-spec` |
+| T15 | Async repository: `LeaveRepository` methods become `async def`; `lock` keyword on `get_request` and `get_balance`; service awaits storage; tests updated | BR-10 groundwork | `leavedesk/domain/repository.py`, `service.py`, `inbox.py`, `leavedesk/api/`, `tests/` | `refactor/async-repository` |
+| T16 | SQLAlchemy, psycopg, Alembic; database roles, timeouts and test database; settings | BR-10 timeouts, BR-13 roles, DB-14, DB-29 | `requirements.txt`, `docker-compose.yml`, `docker/postgres-init/`, `leavedesk/api/settings.py`, `.env.example` | `feature/db-infra` |
+| T17 | Models and revision 0001 | BR-9, DB-3 to DB-6, DB-8, DB-30 | `leavedesk/db/`, `alembic.ini`, `migrations/` | `feature/db-infra` |
+| T18 | `PostgresLeaveRepository`, database user store, error translation, session per request, test database reset | FR-12, DB-1, DB-2, DB-9 | `leavedesk/db/repository.py`, `leavedesk/db/users.py`, `leavedesk/api/`, `conftest.py` | `feature/pg-repository` |
+| T19 | Locked approvals, version checks, `If-Match`, busy errors, concurrency tests | FR-14, DB-7, DB-10 to DB-16 | `leavedesk/domain/service.py`, `leavedesk/db/repository.py`, `leavedesk/api/`, `tests/db/` | `feature/safe-approvals` |
+| T20 | Idempotency keys (revision 0002) | FR-15 | `leavedesk/db/`, `leavedesk/api/routes/leave.py`, `tests/db/` | `feature/safe-approvals` |
+| T21 | Outbox (revision 0003), background drain, worker, `LISTEN` stream | FR-16 | `leavedesk/db/outbox.py`, `leavedesk/worker.py`, `leavedesk/api/stream.py`, `docker-compose.yml`, `tests/db/` | `feature/db-notifications` |
+| T22 | Seed script, plans, query indexes (revision 0004), keyset pagination | FR-18 | `scripts/seed_perf.sql`, `PERF.md`, `migrations/`, `leavedesk/api/routes/leave.py` | `feature/perf` |
+| T23 | Login lockout | FR-17 | `leavedesk/api/routes/auth.py`, `leavedesk/db/users.py`, `tests/` | `feature/login-lockout` |
+| T24 | README, AI notes, review preparation | Definition of done | `README.md`, `AI_NOTES.md` | `docs/capstone3-wrapup` |
+
+---
+
+## 14. Definition of done (Capstone 3)
+- The Day 2 API tests pass unchanged on PostgreSQL (DB-1), and the full suite still passes on the in-memory repository.
+- The overlap (DB-6, DB-7), concurrency (DB-10, DB-11) and outbox rollback (DB-23) tests pass.
+- `PERF.md` shows each indexed query switching from a sequential scan (DB-31).
+- `docker compose up` runs the migrations, the API and the worker against PostgreSQL on a clean machine.
+- `ruff check` and `ruff format --check` pass; no secrets in the repository; every query parameterised.
+
+---
+
+## 15. Change log
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-11-10 | Initial specification for Capstone 1 |
 | 1.1 | 2026-11-11 | T9: employees are registered through LeaveService, which creates their BR-1 balances. Service actions are async so notifications can be sent concurrently in T11. |
 | 1.2 | 2026-11-12 | Capstone 2: repository gained `get_notification`, `save_notification` and `list_employees`; new `Inbox` (list unread first, mark read, mark all read). Leave rules unchanged. |
+| 1.3 | 2026-11-16 | Capstone 3: scope 2.3–2.4; BR-8 audit rows; new BR-9 to BR-13; three new errors; section 12 (FR-12 to FR-18, DB-1 to DB-34); task breakdown and definition of done for Capstone 3. Database design moved to `SCHEMA.md`. Header version corrected (it still said 1.0). |
