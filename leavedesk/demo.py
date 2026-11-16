@@ -46,24 +46,26 @@ def d(day: int, month: int = 11) -> date:
     return date(2026, month, day)
 
 
-def build_service(notifiers: Sequence[Notifier] = ()) -> LeaveService:
+async def build_service(notifiers: Sequence[Notifier] = ()) -> LeaveService:
     """A fresh service with the SPEC section 6 cast, so every case starts clean."""
     service = LeaveService(
         InMemoryLeaveRepository(), default_policies(), notifiers=notifiers, clock=lambda: TODAY
     )
-    service.register_employee(Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager"))
-    service.register_employee(
+    await service.register_employee(
+        Employee(id=MO, name="Mo", email="mo@leavedesk.test", role="manager")
+    )
+    await service.register_employee(
         Employee(id=LEE, name="Lee", email="lee@leavedesk.test", role="manager")
     )
-    service.register_employee(
+    await service.register_employee(
         Employee(id=ANA, name="Ana", email="ana@leavedesk.test", role="employee", manager_id=MO)
     )
     return service
 
 
-def available(service: LeaveService, leave_type: LeaveType = ANNUAL) -> Decimal:
+async def available(service: LeaveService, leave_type: LeaveType = ANNUAL) -> Decimal:
     """Ana's available days for one leave type."""
-    return service.get_balances(ANA)[leave_type].available
+    return (await service.get_balances(ANA))[leave_type].available
 
 
 def heading(title: str) -> None:
@@ -120,7 +122,7 @@ async def happy_path(check: Checklist) -> None:
     heading("1. Happy path: apply, notify, approve (FR-1, FR-6, FR-9, FR-10, FR-11)")
     email = EmailNotifier(SEND_DELAY_SECONDS)
     in_app = InAppNotifier(SEND_DELAY_SECONDS)
-    service = build_service([email, in_app])
+    service = await build_service([email, in_app])
 
     audit_log = logging.getLogger("leavedesk.audit")
     audit_log.setLevel(logging.INFO)  # show the BR-8 audit trail for these two actions
@@ -139,11 +141,11 @@ async def happy_path(check: Checklist) -> None:
         f"-> apply took {timer.elapsed_ms:.0f} ms",
     )
     check.equal("AC-6.1 Mo approves: status", approved.status, LeaveStatus.APPROVED)
-    check.equal("AC-6.1 annual available after approval", available(service), Decimal("15"))
+    check.equal("AC-6.1 annual available after approval", await available(service), Decimal("15"))
 
     half = await service.apply(ANA, ANNUAL, d(17), d(17), "Bank visit and errands", half_day=True)
     check.equal("AC-1.3 half day Tue 17: days", half.days, Decimal("0.5"))
-    annual = service.get_balances(ANA)[ANNUAL]
+    annual = (await service.get_balances(ANA))[ANNUAL]
     check.equal(
         "AC-10.1 annual used / pending / available",
         f"{annual.used} / {annual.pending} / {annual.available}",
@@ -156,13 +158,15 @@ async def happy_path(check: Checklist) -> None:
     check.equal(
         "AC-8.1 Ana cancels Fri 20 - Mon 23: status", cancelled.status, LeaveStatus.CANCELLED
     )
-    check.equal("AC-8.1 days returned: annual available", available(service), Decimal("14.5"))
+    check.equal("AC-8.1 days returned: annual available", await available(service), Decimal("14.5"))
     again = await service.apply(ANA, ANNUAL, d(20), d(23), "Long weekend at home")
     check.equal("AC-4.2 re-apply the cancelled dates: status", again.status, LeaveStatus.PENDING)
     casual = await service.apply(ANA, CASUAL, d(25), d(25), "Moving to a new flat")
     rejected = await service.reject(casual.id, MO, "Team deadline that week")
     check.equal("AC-7.1 Mo rejects with a note: status", rejected.status, LeaveStatus.REJECTED)
-    check.equal("AC-7.1 casual available after rejection", available(service, CASUAL), Decimal("6"))
+    check.equal(
+        "AC-7.1 casual available after rejection", await available(service, CASUAL), Decimal("6")
+    )
 
     for person, name in ((MO, "Mo"), (ANA, "Ana")):
         print(f"\n  {name}'s in-app inbox (oldest first):")
@@ -176,13 +180,15 @@ async def required_edge_cases(check: Checklist) -> None:
     await check.raises(
         "EC-1 end date before start date",
         ValidationError,
-        build_service().apply(ANA, ANNUAL, d(13), d(11), "Family trip to Ooty"),
+        (await build_service()).apply(ANA, ANNUAL, d(13), d(11), "Family trip to Ooty"),
     )
 
-    long_weekend = await build_service().apply(ANA, ANNUAL, d(13), d(16), "Long weekend away")
+    long_weekend = await (await build_service()).apply(
+        ANA, ANNUAL, d(13), d(16), "Long weekend away"
+    )
     check.equal("EC-2 weekend inside Fri 13 - Mon 16: days", long_weekend.days, Decimal("2"))
 
-    service = build_service()
+    service = await build_service()
     await service.apply(ANA, ANNUAL, d(11), d(13), "Family trip to Ooty")
     await check.raises(
         "EC-3 sick on 13th overlaps annual 11-13",
@@ -190,28 +196,30 @@ async def required_edge_cases(check: Checklist) -> None:
         service.apply(ANA, SICK, d(13), d(13), "Fever and cold"),
     )
 
-    service = build_service()
+    service = await build_service()
     await check.raises(
         "EC-4 20 days requested, 18 available",
         InsufficientBalanceError,
         service.apply(ANA, ANNUAL, d(16), d(11, 12), "Long holiday abroad"),
     )
-    check.equal("EC-4 balance unchanged after refusal", available(service), Decimal("18"))
+    check.equal("EC-4 balance unchanged after refusal", await available(service), Decimal("18"))
 
-    half = await build_service().apply(
+    half = await (await build_service()).apply(
         ANA, ANNUAL, d(17), d(17), "Bank visit and errands", half_day=True
     )
     check.equal("EC-5 half day Tue 17: days", half.days, Decimal("0.5"))
     await check.raises(
         "EC-5 half day across two dates",
         ValidationError,
-        build_service().apply(ANA, ANNUAL, d(11), d(12), "Doctor appointment", half_day=True),
+        (await build_service()).apply(
+            ANA, ANNUAL, d(11), d(12), "Doctor appointment", half_day=True
+        ),
     )
 
 
 async def further_edge_cases(check: Checklist) -> None:
     heading("3. Further edge cases EC-6 to EC-16 (SPEC 9.1)")
-    service = build_service()
+    service = await build_service()
 
     await check.raises(
         "EC-6 weekend only, Sat 14 - Sun 15",
@@ -264,7 +272,7 @@ async def further_edge_cases(check: Checklist) -> None:
     )
 
     in_app = InAppNotifier()
-    broken = build_service([BrokenEmailNotifier(), in_app])
+    broken = await build_service([BrokenEmailNotifier(), in_app])
     request = await broken.apply(ANA, ANNUAL, d(11), d(13), "Family trip to Ooty")
     delivered = sum(len(messages) for messages in in_app.inboxes.values())
     check.record(

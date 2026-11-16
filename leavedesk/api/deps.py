@@ -26,29 +26,29 @@ def get_app_state(request: Request) -> AppState:
 StateDep = Annotated[AppState, Depends(get_app_state)]
 
 
-def _employee_from_token(token: str | None, state: AppState) -> Employee:
+async def _employee_from_token(token: str | None, state: AppState) -> Employee:
     if not token:
         raise AuthenticationError("Not authenticated.")
     data = decode_access_token(token, state.settings)
     try:
-        return state.repository.get_employee(data.employee_id)
+        return await state.repository.get_employee(data.employee_id)
     except NotFoundError as error:
         raise AuthenticationError("Invalid or expired token.") from error
 
 
-def get_current_employee(
+async def get_current_employee(
     state: StateDep, token: Annotated[str | None, Depends(oauth2_scheme)]
 ) -> Employee:
-    return _employee_from_token(token, state)
+    return await _employee_from_token(token, state)
 
 
-def get_stream_employee(
+async def get_stream_employee(
     state: StateDep,
     token: Annotated[str | None, Depends(oauth2_scheme)],
     access_token: Annotated[str | None, Query()] = None,
 ) -> Employee:
     """Browsers' EventSource can't send headers, so the stream also accepts ?access_token=."""
-    return _employee_from_token(token or access_token, state)
+    return await _employee_from_token(token or access_token, state)
 
 
 CurrentEmployee = Annotated[Employee, Depends(get_current_employee)]

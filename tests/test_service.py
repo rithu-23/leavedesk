@@ -26,8 +26,8 @@ async def apply_trip(service: LeaveService) -> LeaveRequest:
     return await service.apply(ANA, ANNUAL, d(11), d(13), "Family trip to Ooty")
 
 
-def annual(service: LeaveService) -> LeaveBalance:
-    return service.get_balances(ANA)[ANNUAL]
+async def annual(service: LeaveService) -> LeaveBalance:
+    return (await service.get_balances(ANA))[ANNUAL]
 
 
 # ---------------------------------------------------------------- FR-1, FR-2
@@ -37,13 +37,14 @@ async def test_apply_saves_a_pending_request_and_reserves_days(service: LeaveSer
     request = await apply_trip(service)  # AC-1.1
     assert request.status is LeaveStatus.PENDING
     assert request.days == Decimal("3")
-    assert (annual(service).pending, annual(service).available) == (Decimal("3"), Decimal("15"))
+    balance = await annual(service)
+    assert (balance.pending, balance.available) == (Decimal("3"), Decimal("15"))
 
 
 async def test_bad_input_is_refused_before_anything_is_saved(service: LeaveService) -> None:
     with pytest.raises(ValidationError):  # FR-2 through the service
         await service.apply(ANA, ANNUAL, d(13), d(11), "Family trip to Ooty")
-    assert annual(service).available == Decimal("18")
+    assert (await annual(service)).available == Decimal("18")
 
 
 # ---------------------------------------------------------------- FR-4, FR-5
@@ -53,7 +54,7 @@ async def test_overlapping_request_is_refused(service: LeaveService) -> None:  #
     await apply_trip(service)
     with pytest.raises(OverlappingLeaveError):
         await service.apply(ANA, LeaveType.SICK, d(13), d(13), "Fever and cold")
-    assert service.get_balances(ANA)[LeaveType.SICK].available == Decimal("12")
+    assert (await service.get_balances(ANA))[LeaveType.SICK].available == Decimal("12")
 
 
 async def test_cancelled_dates_can_be_requested_again(service: LeaveService) -> None:  # AC-4.2
@@ -66,7 +67,7 @@ async def test_cancelled_dates_can_be_requested_again(service: LeaveService) -> 
 async def test_insufficient_balance_is_refused_and_nothing_changes(service: LeaveService) -> None:
     with pytest.raises(InsufficientBalanceError):  # AC-5.1
         await service.apply(ANA, ANNUAL, d(16), d(11, 12), "Long holiday abroad")
-    assert annual(service).available == Decimal("18")
+    assert (await annual(service)).available == Decimal("18")
 
 
 # ---------------------------------------------------------------- FR-6
@@ -77,7 +78,7 @@ async def test_approve_moves_days_to_used(service: LeaveService) -> None:  # AC-
     approved = await service.approve(trip.id, MO)
     assert approved.status is LeaveStatus.APPROVED
     assert approved.decided_by == MO
-    balance = annual(service)
+    balance = await annual(service)
     assert (balance.used, balance.pending, balance.available) == (
         Decimal("3"),
         Decimal("0"),
@@ -114,7 +115,7 @@ async def test_reject_with_note_releases_days(service: LeaveService) -> None:  #
     rejected = await service.reject(trip.id, MO, "Team deadline that week")
     assert rejected.status is LeaveStatus.REJECTED
     assert rejected.decision_note == "Team deadline that week"
-    assert annual(service).available == Decimal("18")
+    assert (await annual(service)).available == Decimal("18")
 
 
 @pytest.mark.parametrize("note", [None, "", "   "])
@@ -122,7 +123,7 @@ async def test_reject_without_a_note_is_refused(service: LeaveService, note: str
     trip = await apply_trip(service)  # AC-7.2
     with pytest.raises(InvalidLeaveRequestError):
         await service.reject(trip.id, MO, note)
-    assert annual(service).pending == Decimal("3")
+    assert (await annual(service)).pending == Decimal("3")
 
 
 async def test_rejecting_an_approved_request_is_invalid(service: LeaveService) -> None:  # AC-7.3
@@ -139,7 +140,7 @@ async def test_cancel_releases_days(service: LeaveService) -> None:  # AC-8.1
     trip = await apply_trip(service)
     cancelled = await service.cancel(trip.id, ANA)
     assert cancelled.status is LeaveStatus.CANCELLED
-    assert annual(service).available == Decimal("18")
+    assert (await annual(service)).available == Decimal("18")
 
 
 async def test_only_the_owner_can_cancel(service: LeaveService) -> None:  # AC-8.2
@@ -162,7 +163,7 @@ async def test_balances_after_approval_and_half_day(service: LeaveService) -> No
     trip = await apply_trip(service)
     await service.approve(trip.id, MO)
     await service.apply(ANA, ANNUAL, d(17), d(17), "Bank visit and errands", half_day=True)
-    balances = service.get_balances(ANA)
+    balances = await service.get_balances(ANA)
     assert (balances[ANNUAL].used, balances[ANNUAL].pending, balances[ANNUAL].available) == (
         Decimal("3"),
         Decimal("0.5"),

@@ -13,12 +13,13 @@ router = APIRouter(tags=["leave"])
 
 
 @router.get("/employees/{employee_id}/balance")
-def get_balance(
+async def get_balance(
     employee_id: str, me: CurrentEmployee, state: StateDep, service: ServiceDep
 ) -> list[BalanceOut]:
-    target = state.repository.get_employee(employee_id)  # 404 first
+    target = await state.repository.get_employee(employee_id)  # 404 first
     ensure_self_or_manager(me, target)  # then 403
-    return [BalanceOut.from_domain(b) for b in service.get_balances(target.id).values()]
+    balances = await service.get_balances(target.id)
+    return [BalanceOut.from_domain(b) for b in balances.values()]
 
 
 @router.post("/leave-requests", status_code=201)
@@ -32,7 +33,7 @@ async def apply_for_leave(
 
 
 @router.get("/leave-requests")
-def list_leave_requests(
+async def list_leave_requests(
     me: CurrentEmployee,
     state: StateDep,
     status_filter: Annotated[LeaveStatus | None, Query(alias="status")] = None,
@@ -41,7 +42,7 @@ def list_leave_requests(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[LeaveRequestOut]:
-    reports = {e.id for e in state.repository.list_employees() if e.manager_id == me.id}
+    reports = {e.id for e in await state.repository.list_employees() if e.manager_id == me.id}
     visible = {me.id} | reports
     if employee_id is not None:
         if employee_id not in visible:
@@ -49,7 +50,9 @@ def list_leave_requests(
         visible = {employee_id}
 
     items = [
-        r for r in state.repository.list_requests(status=status_filter) if r.employee_id in visible
+        r
+        for r in await state.repository.list_requests(status=status_filter)
+        if r.employee_id in visible
     ]
     items.sort(key=lambda r: r.start_date, reverse=sort == "-start_date")
     page = items[offset : offset + limit]
@@ -62,9 +65,11 @@ def list_leave_requests(
 
 
 @router.get("/leave-requests/{request_id}")
-def get_leave_request(request_id: str, me: CurrentEmployee, state: StateDep) -> LeaveRequestOut:
-    request = state.repository.get_request(request_id)
-    ensure_self_or_manager(me, state.repository.get_employee(request.employee_id))
+async def get_leave_request(
+    request_id: str, me: CurrentEmployee, state: StateDep
+) -> LeaveRequestOut:
+    request = await state.repository.get_request(request_id)
+    ensure_self_or_manager(me, await state.repository.get_employee(request.employee_id))
     return LeaveRequestOut.from_domain(request)
 
 
