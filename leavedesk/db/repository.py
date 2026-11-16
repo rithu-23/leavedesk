@@ -37,6 +37,7 @@ from leavedesk.db.models import (
     LeaveLedgerRow,
     LeaveRequestRow,
     LeaveTypeRow,
+    NotificationOutboxRow,
     NotificationRow,
 )
 from leavedesk.domain.balance import LeaveBalance
@@ -337,6 +338,11 @@ class PostgresLeaveRepository(LeaveRepository):
     # ------------------------------------------------------ notifications
 
     @staticmethod
+    def to_notification(row: NotificationRow) -> Notification:
+        """Public: the outbox sender converts rows it claimed (recipient must be loaded)."""
+        return PostgresLeaveRepository._to_notification(row)
+
+    @staticmethod
     def _to_notification(row: NotificationRow) -> Notification:
         return Notification(
             id=row.public_id,
@@ -365,6 +371,10 @@ class PostgresLeaveRepository(LeaveRepository):
             created_at=notification.created_at,
         )
         self._session.add(row)
+        await self._session.flush()
+        # Transactional outbox (SPEC BR-12): queued in the SAME transaction as the leave
+        # action, so it exists if and only if the action is committed.
+        self._session.add(NotificationOutboxRow(tenant_id=self._tenant_id, notification_id=row.id))
         await self._session.flush()
         self._notification_rows[notification.id] = row
 

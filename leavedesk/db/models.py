@@ -296,3 +296,40 @@ class NotificationRow(Base):
     created_at: Mapped[datetime] = _created_at()
 
     recipient: Mapped[EmployeeRow] = relationship(lazy="raise")
+
+
+class NotificationOutboxRow(Base):
+    """One row per notification still to be sent (transactional outbox, SCHEMA.md 4.11).
+
+    Inserted in the same transaction as the leave action, so a rolled-back action
+    leaves no row. Senders claim rows with FOR UPDATE SKIP LOCKED (leavedesk/db/outbox.py).
+    """
+
+    __tablename__ = "notification_outbox"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'sent', 'failed')", name="status_values"),
+        CheckConstraint("attempts >= 0", name="attempts_positive"),
+        # Only rows still waiting: the index senders scan stays small forever.
+        Index(
+            "ix_outbox_pending",
+            "available_at",
+            "id",
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = _id()
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
+    notification_id: Mapped[int] = mapped_column(
+        ForeignKey("notifications.id"), nullable=False, unique=True
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    available_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=func.now()
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+
+    notification: Mapped[NotificationRow] = relationship(lazy="raise")
