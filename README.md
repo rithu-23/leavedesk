@@ -63,6 +63,7 @@ docker compose up -d db
 | Review demo: the same test **without** locks fails | `LEAVEDESK_DEMO_NO_LOCKS=1 python -m pytest tests/db/test_concurrency.py -k db10` |
 | Run the outbox worker (sends anything left behind) | `python -m leavedesk.worker` (or `--once` for one pass) |
 | Notification tests (outbox, rollback, LISTEN/NOTIFY) | `python -m pytest tests/db/test_outbox.py -v` |
+| Seed 100k requests and capture query plans (PERF.md) | `python scripts/perf.py` → `perf_results.txt` |
 | Log every SQL statement (N+1 checks) | `DB_ECHO=true python -m uvicorn leavedesk.api.main:create_app --factory` |
 | Open a SQL prompt as the app role | `docker compose exec db psql -U leavedesk_app -d leavedesk` |
 
@@ -94,7 +95,7 @@ run against any database whose name does not end in `_test`.
 | `leavedesk/demo.py` | Day 1 demo of the happy path and every edge case |
 | `tests/` | Domain tests; `tests/api/` holds the API tests; `tests/db/` needs PostgreSQL |
 | `conftest.py`, `scripts/pytest-postgres.sh` | Run the whole suite on the PostgreSQL test database |
-| `SPEC.md`, `API_SPEC.md`, `SCHEMA.md` | Specifications, acceptance criteria and the database design |
+| `SPEC.md`, `API_SPEC.md`, `SCHEMA.md`, `PERF.md` | Specifications, acceptance criteria, the database design and the index proofs |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
 | `Dockerfile`, `docker-compose.yml` | Container image and the `db`, `migrate`, `api` and `worker` services |
 | `.env.example` | Every setting the app needs, with placeholder values |
