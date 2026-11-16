@@ -340,3 +340,22 @@
 **Issues caught:**
 1. **Autogenerate copied an index into the wrong revision:** revision 0004 also created `ix_leave_requests_start_date_id`, because my development database had been migrated to 0003 *before* that index was added to 0003, so autogenerate saw it as missing. `alembic check` passed on that database; only the tests' full rebuild (`downgrade base`, `upgrade head`) failed with "relation already exists". Removed the duplicate. Lesson: autogenerate compares against whatever database you point it at, so always review its output and rebuild from scratch.
 2. **A unique constraint alone does not handle two identical submits at once:** both would pass the "is this key new?" check, both would create a leave request, and only the second key insert would fail, after its request already existed in the transaction. An advisory lock on the key makes the second submit wait for the first and then replay it (DB-21).
+
+
+---
+
+## Entry 18 — Keyset pagination in the API (Capstone 3, task T22, part 2)
+
+**Prompt:** Move `GET /leave-requests` filtering, counting, sorting and paging into storage, add `?cursor=` / `next_cursor` keyset pagination, keep `offset` working, and refuse `cursor` together with `offset`.
+
+**Generated:** `leavedesk/domain/pagination.py` (opaque cursors), `page_requests` on both repositories, the route changes, `next_cursor` on `Page`, `tests/api/test_pagination_api.py` (DB-32 to DB-34 plus descending, invalid-cursor and last-page tests; both storage modes).
+
+**Checked / changed:**
+- The unchanged Day 2 sorting/pagination test still passes, so `offset` behaves as before. 175 passed in memory and on PostgreSQL.
+- DB-33 shows the difference in practice: after an earlier request is added, the cursor's page 2 is exactly the original rows 21 to 40, while `offset=20` repeats row 20.
+
+**Issues caught:**
+1. **Found while writing PERF.md:** the old endpoint loaded every visible request and sliced the page in Python, so the keyset index in revision 0003 could never be used by the API, and every page read the whole set. Fixed by paging in SQL.
+2. **Order must be total for a cursor to work:** sorting by `start_date` alone gives ties (many requests share a date), so a cursor could skip or repeat rows at a page boundary. Both repositories order by `(start_date, tie-breaker)`: the internal id in PostgreSQL, insertion order in memory. Each storage encodes its own tie-breaker in the opaque cursor.
+3. **Still to improve:** the endpoint works out a manager's reports by loading the employee list. Fine for the demo data, but with 20,000 employees it should become a single `WHERE manager_id = ...` query.
+4. **A flaky test found on the real machine (DB-7):** on the Mac, one full PostgreSQL run failed DB-7 because the second submit was cancelled with a deadlock error (40P01, after the 1-second `deadlock_timeout`) instead of the EXCLUDE violation (23P01). That is real PostgreSQL behaviour: two conflicting inserts under an exclusion constraint can each wait for the other. Both outcomes mean the database stopped the second request (the API turns 40P01 into a retry-safe 503), so the test now accepts either, while still checking that exactly one request was saved.

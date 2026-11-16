@@ -5,6 +5,7 @@ import json
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from leavedesk.api.deps import CurrentEmployee, RepoDep, ServiceDep, ensure_self_or_manager
@@ -92,7 +93,12 @@ async def list_leave_requests(
     sort: Literal["start_date", "-start_date"] = "start_date",
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
+    cursor: Annotated[str | None, Query(max_length=200)] = None,
 ) -> Page[LeaveRequestOut]:
+    """Paginated in storage (API_SPEC 3.1): pass the previous page's next_cursor as
+    ?cursor= for keyset pagination; plain offset still works as in v1.0."""
+    if cursor is not None and offset > 0:
+        raise _query_error("cursor", "Use either cursor or offset, not both.")
     reports = {e.id for e in await repo.list_employees() if e.manager_id == me.id}
     visible = {me.id} | reports
     if employee_id is not None:
@@ -100,14 +106,30 @@ async def list_leave_requests(
             raise NotAuthorisedError(f"{me.id} may not list requests of {employee_id}.")
         visible = {employee_id}
 
-    items = [r for r in await repo.list_requests(status=status_filter) if r.employee_id in visible]
-    items.sort(key=lambda r: r.start_date, reverse=sort == "-start_date")
-    page = items[offset : offset + limit]
+    try:
+        page = await repo.page_requests(
+            employee_ids=visible,
+            status=status_filter,
+            descending=sort == "-start_date",
+            limit=limit,
+            offset=offset,
+            cursor=cursor,
+        )
+    except ValueError as error:
+        raise _query_error("cursor", "Invalid cursor.") from error
     return Page(
-        items=[LeaveRequestOut.from_domain(r) for r in page],
-        total=len(items),
+        items=[LeaveRequestOut.from_domain(r) for r in page.items],
+        total=page.total,
         limit=limit,
-        offset=offset,
+        offset=0 if cursor is not None else offset,
+        next_cursor=page.next_cursor,
+    )
+
+
+def _query_error(field: str, message: str) -> RequestValidationError:
+    """Reported like any other invalid query parameter: 422 VALIDATION_ERROR."""
+    return RequestValidationError(
+        [{"loc": ("query", field), "msg": message, "type": "value_error"}]
     )
 
 

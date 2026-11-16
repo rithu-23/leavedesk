@@ -22,6 +22,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from leavedesk.db.repository import PostgresLeaveRepository
 from leavedesk.domain.balance import LeaveBalance
@@ -221,10 +222,19 @@ async def test_db7_concurrent_overlapping_submits_one_is_refused(
     )
 
     assert sum(isinstance(r, LeaveRequest) for r in results) == 1
-    [refused] = [r for r in results if isinstance(r, OverlappingLeaveError)]
-    # This message comes only from the EXCLUDE (23P01) translation in the repository:
-    # proof that the database, not the Python check, stopped the second request.
-    assert "saved at the same moment" in str(refused)
+    [refused] = [r for r in results if not isinstance(r, LeaveRequest)]
+    # The database stopped the second request, in one of two ways (both are PostgreSQL
+    # behaviour for two conflicting inserts under an EXCLUDE constraint):
+    # - 23P01, translated by the repository: only that translation says "saved at the
+    #   same moment", so this cannot be the Python overlap check;
+    # - 40P01 deadlock: each insert waited for the other; after deadlock_timeout (1 s)
+    #   PostgreSQL cancels one. The API returns 503 DATABASE_BUSY (retry-safe), and the
+    #   retry then gets an ordinary 409 overlap.
+    if isinstance(refused, OverlappingLeaveError):
+        assert "saved at the same moment" in str(refused)
+    else:
+        assert isinstance(refused, DBAPIError), refused
+        assert getattr(refused.orig, "sqlstate", None) == "40P01"
     listed = client.get("/leave-requests", headers=ana).json()
     assert listed["total"] == 1
 

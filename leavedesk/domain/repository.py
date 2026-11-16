@@ -23,6 +23,7 @@ from typing import Any
 from leavedesk.domain.balance import LeaveBalance
 from leavedesk.domain.exceptions import NotFoundError
 from leavedesk.domain.models import Employee, LeaveRequest, LeaveStatus, LeaveType, Notification
+from leavedesk.domain.pagination import RequestPage, decode_cursor, encode_cursor
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,23 @@ class LeaveRepository(ABC):
     @abstractmethod
     async def list_notifications(self, recipient_id: str) -> list[Notification]:
         """Return the recipient's notifications, newest first."""
+
+    @abstractmethod
+    async def page_requests(
+        self,
+        *,
+        employee_ids: set[str],
+        status: LeaveStatus | None = None,
+        descending: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+        cursor: str | None = None,
+    ) -> RequestPage:
+        """One page of requests by start date (then a tie-breaker), filtered in storage.
+
+        cursor: continue strictly after the position it names (keyset pagination);
+        offset is then ignored. Raises ValueError for an invalid cursor.
+        """
 
     # ----- Idempotency keys (Capstone 3) -----
     @abstractmethod
@@ -209,6 +227,43 @@ class InMemoryLeaveRepository(LeaveRepository):
     async def list_notifications(self, recipient_id: str) -> list[Notification]:
         mine = [n for n in self._notifications.values() if n.recipient_id == recipient_id]
         return [deepcopy(n) for n in sorted(mine, key=lambda n: n.created_at, reverse=True)]
+
+    async def page_requests(
+        self,
+        *,
+        employee_ids: set[str],
+        status: LeaveStatus | None = None,
+        descending: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+        cursor: str | None = None,
+    ) -> RequestPage:
+        # (start_date, insertion position) is unique, so the order is total.
+        keyed = [
+            ((request.start_date, position), request)
+            for position, request in enumerate(self._requests.values())
+            if request.employee_id in employee_ids and (status is None or request.status is status)
+        ]
+        keyed.sort(key=lambda pair: pair[0], reverse=descending)
+        if cursor is not None:
+            after = decode_cursor(cursor)
+            keyed = [p for p in keyed if (p[0] < after if descending else p[0] > after)]
+            window = keyed[:limit]
+            more = len(keyed) > limit
+        else:
+            window = keyed[offset : offset + limit]
+            more = len(keyed) > offset + limit
+        total = sum(
+            1
+            for r in self._requests.values()
+            if r.employee_id in employee_ids and (status is None or r.status is status)
+        )
+        last = window[-1][0] if window else None
+        return RequestPage(
+            items=[deepcopy(request) for _, request in window],
+            total=total,
+            next_cursor=encode_cursor(*last) if more and last else None,
+        )
 
     # ----- Idempotency keys -----
     async def claim_idempotency_key(self, employee_id: str, key: str) -> StoredResponse | None:

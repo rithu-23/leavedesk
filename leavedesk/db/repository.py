@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -56,6 +56,7 @@ from leavedesk.domain.models import (
     NotificationEvent,
     Role,
 )
+from leavedesk.domain.pagination import RequestPage, decode_cursor, encode_cursor
 from leavedesk.domain.repository import LeaveRepository, StoredResponse
 
 EXCLUSION_VIOLATION = "23P01"
@@ -264,6 +265,57 @@ class PostgresLeaveRepository(LeaveRepository):
             query.order_by(LeaveRequestRow.start_date, LeaveRequestRow.id)
         )
         return [self._to_request(row) for row in rows.unique()]
+
+    async def page_requests(
+        self,
+        *,
+        employee_ids: set[str],
+        status: LeaveStatus | None = None,
+        descending: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+        cursor: str | None = None,
+    ) -> RequestPage:
+        """Filter, count, sort and page in SQL (PERF.md P1/P2).
+
+        ORDER BY (start_date, id) matches ix_leave_requests_start_date_id, so a cursor
+        page is a short index range: WHERE (start_date, id) > (:d, :i) LIMIT n+1.
+        One extra row is fetched to know whether a next page exists.
+        """
+        pks = list(
+            await self._session.scalars(
+                select(EmployeeRow.id).where(
+                    EmployeeRow.tenant_id == self._tenant_id,
+                    EmployeeRow.public_id.in_(employee_ids),
+                )
+            )
+        )
+        conditions = [
+            LeaveRequestRow.tenant_id == self._tenant_id,
+            LeaveRequestRow.employee_id.in_(pks),
+        ]
+        if status is not None:
+            conditions.append(LeaveRequestRow.status == status.value)
+        total = await self._session.scalar(select(func.count()).where(*conditions)) or 0
+
+        position = tuple_(LeaveRequestRow.start_date, LeaveRequestRow.id)
+        query = self._request_query().where(*conditions)
+        if cursor is not None:
+            after = decode_cursor(cursor)
+            query = query.where(position < after if descending else position > after)
+        order = (
+            (LeaveRequestRow.start_date.desc(), LeaveRequestRow.id.desc())
+            if descending
+            else (LeaveRequestRow.start_date, LeaveRequestRow.id)
+        )
+        query = query.order_by(*order).limit(limit + 1)
+        if cursor is None:
+            query = query.offset(offset)
+        rows = list((await self._session.scalars(query)).unique())
+        more = len(rows) > limit
+        rows = rows[:limit]
+        next_cursor = encode_cursor(rows[-1].start_date, rows[-1].id) if more and rows else None
+        return RequestPage([self._to_request(r) for r in rows], int(total), next_cursor)
 
     # ----------------------------------------------------------- balances
 
