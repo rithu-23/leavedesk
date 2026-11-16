@@ -323,3 +323,20 @@
 **Issues caught:**
 1. **Read-then-write race on the counter:** counting failures by reading the count in Python and writing count + 1 would lose updates when two wrong passwords arrive at the same moment (an attacker could get extra guesses). The PostgreSQL store does it in one atomic conditional `UPDATE ... RETURNING`.
 2. **Locking forever by accident:** if failures kept counting after a lock expired, the very next typo would lock the account again (count 6 >= 5). An expired lock now restarts the count from 1. Failures *during* a lock are not counted, so an attacker cannot keep extending someone's lock.
+
+
+---
+
+## Entry 17 — Idempotency-Key (Capstone 3, task T20)
+
+**Prompt:** Accept an optional `Idempotency-Key` on `POST /leave-requests`: the same key and body return the first result, a different body returns 422, a failed submit stores nothing, keys are per employee, and two submits with the same key at the same moment create only one request.
+
+**Generated:** `IdempotencyKeyRow` and revision 0004; `claim_idempotency_key` / `save_idempotency_key` on both repositories; `IdempotencyKeyReusedError` (422); the header and replay logic in the route; `tests/api/test_idempotency_api.py` (DB-17 to DB-20, both storage modes) and DB-21 in `tests/db/test_concurrency.py`.
+
+**Checked / changed:**
+- 169 passed in memory and on PostgreSQL; `alembic downgrade 0003`, `upgrade head`, `check` clean.
+- The replayed response is byte-for-byte the first one (same id and version), with `Idempotent-Replayed: true`, and the balance is reserved once.
+
+**Issues caught:**
+1. **Autogenerate copied an index into the wrong revision:** revision 0004 also created `ix_leave_requests_start_date_id`, because my development database had been migrated to 0003 *before* that index was added to 0003, so autogenerate saw it as missing. `alembic check` passed on that database; only the tests' full rebuild (`downgrade base`, `upgrade head`) failed with "relation already exists". Removed the duplicate. Lesson: autogenerate compares against whatever database you point it at, so always review its output and rebuild from scratch.
+2. **A unique constraint alone does not handle two identical submits at once:** both would pass the "is this key new?" check, both would create a leave request, and only the second key insert would fail, after its request already existed in the transaction. An advisory lock on the key makes the second submit wait for the first and then replay it (DB-21).

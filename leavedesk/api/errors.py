@@ -15,6 +15,7 @@ from leavedesk.api.security import AuthenticationError
 from leavedesk.domain.exceptions import (
     ConcurrentUpdateError,
     DatabaseBusyError,
+    IdempotencyKeyReusedError,
     InsufficientBalanceError,
     InvalidLeaveRequestError,
     InvalidTransitionError,
@@ -33,6 +34,7 @@ DOMAIN_ERRORS: list[tuple[type[LeaveDeskError], int, str]] = [
     (ConcurrentUpdateError, 409, "CONCURRENT_UPDATE"),  # Capstone 3 (API_SPEC v1.1)
     (InsufficientBalanceError, 422, "INSUFFICIENT_BALANCE"),
     (InvalidLeaveRequestError, 422, "INVALID_LEAVE_REQUEST"),
+    (IdempotencyKeyReusedError, 422, "IDEMPOTENCY_KEY_REUSED"),  # Capstone 3
     (NotAuthorisedError, 403, "FORBIDDEN"),
     (NotFoundError, 404, "NOT_FOUND"),
 ]

@@ -360,3 +360,31 @@ class NotificationOutboxRow(Base):
     created_at: Mapped[datetime] = _created_at()
 
     notification: Mapped[NotificationRow] = relationship(lazy="raise")
+
+
+class IdempotencyKeyRow(Base):
+    """The first response to a submit sent with an Idempotency-Key (SCHEMA.md 4.12).
+
+    Saved in the same transaction as the new leave request, so a failed submit stores
+    nothing and can be retried with the same key (SPEC BR-11).
+    """
+
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (
+        # Keys are scoped to one employee; this UNIQUE does not start with employee_id,
+        # so that foreign key gets its own index below (SCHEMA.md 5.1).
+        UniqueConstraint("tenant_id", "employee_id", "key"),
+        CheckConstraint("char_length(key) BETWEEN 1 AND 255", name="key_length"),
+    )
+
+    id: Mapped[int] = _id()
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    request_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    leave_request_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leave_requests.id"), index=True
+    )
+    response_status: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    response_body: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = _created_at()

@@ -1,13 +1,17 @@
 """Balance and leave-request endpoints (API_SPEC.md section 3)."""
 
+import hashlib
+import json
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, Query
+from fastapi.responses import JSONResponse
 
 from leavedesk.api.deps import CurrentEmployee, RepoDep, ServiceDep, ensure_self_or_manager
 from leavedesk.api.schemas import BalanceOut, LeaveRequestCreate, LeaveRequestOut, Page, RejectBody
-from leavedesk.domain.exceptions import NotAuthorisedError
+from leavedesk.domain.exceptions import IdempotencyKeyReusedError, NotAuthorisedError
 from leavedesk.domain.models import LeaveStatus
+from leavedesk.domain.repository import StoredResponse
 
 router = APIRouter(tags=["leave"])
 
@@ -22,14 +26,61 @@ async def get_balance(
     return [BalanceOut.from_domain(b) for b in balances.values()]
 
 
-@router.post("/leave-requests", status_code=201)
+# Idempotency-Key (API_SPEC v1.1): 1-255 visible ASCII characters, chosen by the client.
+IdempotencyKey = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        pattern=r"^[\x21-\x7E]{1,255}$",
+        description="Optional. Repeat a submit safely: the same key and body return the first result.",
+    ),
+]
+
+
+def request_fingerprint(body: LeaveRequestCreate) -> str:
+    """SHA-256 of the body in a fixed form (sorted keys), to tell 'same request' from 'different'."""
+    canonical = json.dumps(body.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+@router.post("/leave-requests", status_code=201, response_model=LeaveRequestOut)
 async def apply_for_leave(
-    body: LeaveRequestCreate, me: CurrentEmployee, service: ServiceDep
-) -> LeaveRequestOut:
+    body: LeaveRequestCreate,
+    me: CurrentEmployee,
+    service: ServiceDep,
+    repo: RepoDep,
+    idempotency_key: IdempotencyKey = None,
+) -> LeaveRequestOut | JSONResponse:
+    """Submit a request. With an Idempotency-Key, a retry never creates a second request.
+
+    Same key + same body  -> the first response again, with Idempotent-Replayed: true (DB-17).
+    Same key + other body -> 422 IDEMPOTENCY_KEY_REUSED (DB-18).
+    A submit that fails is rolled back with its key, so it can be retried (DB-19).
+    """
+    fingerprint = request_fingerprint(body)
+    if idempotency_key is not None:
+        stored = await repo.claim_idempotency_key(me.id, idempotency_key)
+        if stored is not None:
+            if stored.request_hash != fingerprint:
+                raise IdempotencyKeyReusedError(idempotency_key)
+            return JSONResponse(
+                status_code=stored.status,
+                content=stored.body,
+                headers={"Idempotent-Replayed": "true"},
+            )
+
     request = await service.apply(
         me.id, body.leave_type, body.start_date, body.end_date, body.reason, body.half_day
     )
-    return LeaveRequestOut.from_domain(request)
+    created = LeaveRequestOut.from_domain(request)
+    if idempotency_key is not None:
+        await repo.save_idempotency_key(
+            me.id,
+            idempotency_key,
+            StoredResponse(fingerprint, 201, created.model_dump(mode="json")),
+            request.id,
+        )
+    return created
 
 
 @router.get("/leave-requests")

@@ -17,10 +17,21 @@ implementation ignores it.
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import dataclass
+from typing import Any
 
 from leavedesk.domain.balance import LeaveBalance
 from leavedesk.domain.exceptions import NotFoundError
 from leavedesk.domain.models import Employee, LeaveRequest, LeaveStatus, LeaveType, Notification
+
+
+@dataclass(frozen=True)
+class StoredResponse:
+    """The first answer to a submit made with an Idempotency-Key (SPEC BR-11)."""
+
+    request_hash: str
+    status: int
+    body: dict[str, Any]
 
 
 class LeaveRepository(ABC):
@@ -93,6 +104,21 @@ class LeaveRepository(ABC):
     async def list_notifications(self, recipient_id: str) -> list[Notification]:
         """Return the recipient's notifications, newest first."""
 
+    # ----- Idempotency keys (Capstone 3) -----
+    @abstractmethod
+    async def claim_idempotency_key(self, employee_id: str, key: str) -> StoredResponse | None:
+        """Return the stored first response for this employee's key, or None if it is new.
+
+        The PostgreSQL implementation also holds a lock on the key until the transaction
+        ends, so a second request with the same key waits, then sees the first result.
+        """
+
+    @abstractmethod
+    async def save_idempotency_key(
+        self, employee_id: str, key: str, response: StoredResponse, request_id: str
+    ) -> None:
+        """Store the first response, in the same transaction as the new request."""
+
 
 class InMemoryLeaveRepository(LeaveRepository):
     """Keeps everything in dictionaries while the program runs.
@@ -108,6 +134,7 @@ class InMemoryLeaveRepository(LeaveRepository):
         self._requests: dict[str, LeaveRequest] = {}
         self._balances: dict[tuple[str, LeaveType], LeaveBalance] = {}
         self._notifications: dict[str, Notification] = {}
+        self._idempotency: dict[tuple[str, str], StoredResponse] = {}
 
     # ----- Employees -----
     async def add_employee(self, employee: Employee) -> None:
@@ -182,3 +209,12 @@ class InMemoryLeaveRepository(LeaveRepository):
     async def list_notifications(self, recipient_id: str) -> list[Notification]:
         mine = [n for n in self._notifications.values() if n.recipient_id == recipient_id]
         return [deepcopy(n) for n in sorted(mine, key=lambda n: n.created_at, reverse=True)]
+
+    # ----- Idempotency keys -----
+    async def claim_idempotency_key(self, employee_id: str, key: str) -> StoredResponse | None:
+        return self._idempotency.get((employee_id, key))
+
+    async def save_idempotency_key(
+        self, employee_id: str, key: str, response: StoredResponse, request_id: str
+    ) -> None:
+        self._idempotency[(employee_id, key)] = response

@@ -1,6 +1,6 @@
 # LeaveDesk — Database Schema (Capstone 3)
 
-**Version:** 1.3 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
+**Version:** 1.4 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
 
 This document explains what the database stores, which rules the database itself enforces,
 and why each design choice was made. The SQLAlchemy models (`leavedesk/db/models.py`) and the
@@ -318,8 +318,11 @@ failed attempts (back-off 2, 4, 8, 16 s) a row is marked `failed` (DB-26).
 | `response_body` | jsonb | NOT NULL |
 
 The key row is inserted in the same transaction as the new request. A failed request rolls back and
-stores nothing, so the client can retry with the same key. Rows older than 24 hours may be deleted by
-a cleanup job (out of scope).
+stores nothing, so the client can retry with the same key. Two requests with the same key at the same
+moment are serialised with a transaction-level **advisory lock** on the key
+(`pg_advisory_xact_lock(hashtextextended('idempotency:<tenant>:<employee>:<key>', 0))`): it locks a
+number, not a row, so it works before the row exists; the second request waits, then finds the stored
+response (DB-21). Rows older than 24 hours may be deleted by a cleanup job (out of scope).
 
 ---
 
@@ -424,7 +427,7 @@ tenant tables, with the app setting `app.tenant_id` at the start of each transac
 | `0001_initial_schema` | `feature/db-infra` | Extensions (`btree_gist`), tables 4.1–4.10, constraints, EXCLUDE, FK indexes, unread partial index, append-only triggers, revoke `UPDATE, DELETE` on the append-only tables, seed tenant `T-DEMO`, department `Engineering` and the three leave types |
 | `0002_notification_outbox` | `feature/db-notifications` | Table 4.11, outbox index, `pg_notify` trigger on `notifications` |
 | `0003_query_indexes` | `feature/perf` | `pg_trgm` extension, the four indexes in 5.2, drop the redundant `ix_leave_requests_employee_id` |
-| `0004_idempotency_keys` | `feature/idempotency` | Table 4.12 (not built yet) |
+| `0004_idempotency_keys` | `feature/idempotency` | Table 4.12 |
 
 Every revision has a working `downgrade()`; DB-3 checks `upgrade head → downgrade base → upgrade head`.
 
@@ -456,3 +459,4 @@ Every revision has a working `downgrade()`; DB-3 checks `upgrade head → downgr
 | 1.1 | 2026-11-16 | Section 6: grants come from default privileges set by the init script, revisions only revoke; 4.8: TRUNCATE note; section 8: revision 0001 contents updated to match the code. |
 | 1.2 | 2026-11-16 | Outbox built before idempotency, so revisions renumbered (0002 outbox, 0003 idempotency keys); 4.11 describes the real NOTIFY payload, the two senders and the retry policy, and cites the correct SPEC criteria (DB-23 to DB-26). |
 | 1.3 | 2026-11-16 | Query indexes are revision 0003 (built before idempotency); fourth index `(start_date, id)` for the list order and keyset pagination; the PERF.md method also drops the EXCLUDE constraint inside the rolled-back transaction, because its GiST index can serve `employee_id = …`. |
+| 1.4 | 2026-11-16 | 4.12: concurrent submits with the same key are serialised with an advisory lock; revision 0004 built. |
