@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Header, Query
 
 from leavedesk.api.deps import CurrentEmployee, RepoDep, ServiceDep, ensure_self_or_manager
 from leavedesk.api.schemas import BalanceOut, LeaveRequestCreate, LeaveRequestOut, Page, RejectBody
@@ -67,22 +67,47 @@ async def get_leave_request(request_id: str, me: CurrentEmployee, repo: RepoDep)
     return LeaveRequestOut.from_domain(request)
 
 
+# If-Match (API_SPEC v1.1): the version the client last saw, as a plain integer;
+# quotes are allowed because HTTP clients often quote ETag-style values.
+IfMatch = Annotated[
+    str | None,
+    Header(
+        alias="If-Match",
+        pattern=r'^"?[1-9][0-9]{0,8}"?$',
+        description="Optional. The request's `version`; 409 CONCURRENT_UPDATE if it changed.",
+    ),
+]
+
+
+def expected_version(if_match: str | None) -> int | None:
+    return int(if_match.strip('"')) if if_match is not None else None
+
+
 @router.post("/leave-requests/{request_id}/approve")
 async def approve_leave(
-    request_id: str, me: CurrentEmployee, service: ServiceDep
+    request_id: str, me: CurrentEmployee, service: ServiceDep, if_match: IfMatch = None
 ) -> LeaveRequestOut:
-    return LeaveRequestOut.from_domain(await service.approve(request_id, me.id))
+    approved = await service.approve(request_id, me.id, expected_version=expected_version(if_match))
+    return LeaveRequestOut.from_domain(approved)
 
 
 @router.post("/leave-requests/{request_id}/reject")
 async def reject_leave(
-    request_id: str, body: RejectBody, me: CurrentEmployee, service: ServiceDep
+    request_id: str,
+    body: RejectBody,
+    me: CurrentEmployee,
+    service: ServiceDep,
+    if_match: IfMatch = None,
 ) -> LeaveRequestOut:
-    return LeaveRequestOut.from_domain(await service.reject(request_id, me.id, body.reason))
+    rejected = await service.reject(
+        request_id, me.id, body.reason, expected_version=expected_version(if_match)
+    )
+    return LeaveRequestOut.from_domain(rejected)
 
 
 @router.delete("/leave-requests/{request_id}")
 async def cancel_leave(
-    request_id: str, me: CurrentEmployee, service: ServiceDep
+    request_id: str, me: CurrentEmployee, service: ServiceDep, if_match: IfMatch = None
 ) -> LeaveRequestOut:
-    return LeaveRequestOut.from_domain(await service.cancel(request_id, me.id))
+    cancelled = await service.cancel(request_id, me.id, expected_version=expected_version(if_match))
+    return LeaveRequestOut.from_domain(cancelled)

@@ -1,6 +1,6 @@
 # LeaveDesk — Specification
 
-**Version:** 1.3 (Capstone 3) · **Status:** Draft · **Author:** Rithu
+**Version:** 1.4 (Capstone 3) · **Status:** Draft · **Author:** Rithu
 
 Companion documents: `API_SPEC.md` (REST contract) and `SCHEMA.md` (database design).
 
@@ -444,7 +444,7 @@ without going through LeaveService, to prove the database itself enforces the ru
 | DB-13 | Two sessions load the same request; the first saves a change | The second saves its own change | `ConcurrentUpdateError` (SQLAlchemy `StaleDataError` underneath); the first change is kept |
 | DB-14 | Connected as the app role | `SHOW statement_timeout`, `SHOW lock_timeout` | `5s` and `2s` |
 | DB-15 | Another transaction holds a lock on Ana's balance for longer than 2 seconds | Ana submits a request | 503 `DATABASE_BUSY` with a `Retry-After` header; nothing saved |
-| DB-16 | The concurrency test of DB-10 with locking and version checks switched off (test-only flag) | Mo approves twice at the same moment | The test shows the bug: both succeed and `used` increases by 6. This is the "fails without the lock" demonstration for the review |
+| DB-16 | The concurrency test of DB-10 run with `LEAVEDESK_DEMO_NO_LOCKS=1` (test-only switch: a repository that ignores `lock=True` and writes rows back without a version check) | Mo approves twice at the same moment | The test fails and shows the bug: both approvals succeed. Without the switch it passes. This is the "fails without the lock" demonstration for the review |
 
 ### FR-15 Idempotent submit (BR-11; Part C)
 
@@ -519,3 +519,4 @@ without going through LeaveService, to prove the database itself enforces the ru
 | 1.1 | 2026-11-11 | T9: employees are registered through LeaveService, which creates their BR-1 balances. Service actions are async so notifications can be sent concurrently in T11. |
 | 1.2 | 2026-11-12 | Capstone 2: repository gained `get_notification`, `save_notification` and `list_employees`; new `Inbox` (list unread first, mark read, mark all read). Leave rules unchanged. |
 | 1.3 | 2026-11-16 | Capstone 3: scope 2.3–2.4; BR-8 audit rows; new BR-9 to BR-13; three new errors; section 12 (FR-12 to FR-18, DB-1 to DB-34); task breakdown and definition of done for Capstone 3. Database design moved to `SCHEMA.md`. Header version corrected (it still said 1.0). |
+| 1.4 | 2026-11-16 | DB-16 names the demo switch `LEAVEDESK_DEMO_NO_LOCKS` and what the unsafe repository does. |

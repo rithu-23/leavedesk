@@ -90,3 +90,9 @@ def clean_db(migrated: Config) -> None:
 def app_database_url(clean_db: None) -> str:
     """The app role's SQLAlchemy URL for the test database, on an emptied database."""
     return _require(SETTINGS.test_database_url)
+
+
+@pytest.fixture
+def migrator_database_url(clean_db: None) -> str:
+    """The migrator role's URL for the test database (no timeouts), on an emptied database."""
+    return _require(SETTINGS.test_migration_database_url)

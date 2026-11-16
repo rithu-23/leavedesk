@@ -21,6 +21,7 @@ from datetime import date
 from leavedesk.domain.balance import LeaveBalance, default_balances
 from leavedesk.domain.dates import count_working_days, find_overlap
 from leavedesk.domain.exceptions import (
+    ConcurrentUpdateError,
     InvalidLeaveRequestError,
     InvalidTransitionError,
     NotAuthorisedError,
@@ -122,10 +123,13 @@ class LeaveService:
         return request
 
     @audit
-    async def approve(self, request_id: str, approver_id: str) -> LeaveRequest:
-        """Approve a pending request (FR-6, FR-9)."""
+    async def approve(
+        self, request_id: str, approver_id: str, *, expected_version: int | None = None
+    ) -> LeaveRequest:
+        """Approve a pending request (FR-6, FR-9). expected_version: see _ensure_version."""
         request, employee = await self._load(request_id)
         await self._ensure_manager_of(approver_id, employee)
+        self._ensure_version(request, expected_version)
         self._ensure_pending(request, "approve")
 
         balance = await self._repo.get_balance(employee.id, request.leave_type, lock=True)
@@ -148,11 +152,17 @@ class LeaveService:
 
     @audit
     async def reject(
-        self, request_id: str, approver_id: str, note: str | None = None
+        self,
+        request_id: str,
+        approver_id: str,
+        note: str | None = None,
+        *,
+        expected_version: int | None = None,
     ) -> LeaveRequest:
         """Reject a pending request; a reason is required (FR-7, FR-9)."""
         request, employee = await self._load(request_id)
         await self._ensure_manager_of(approver_id, employee)
+        self._ensure_version(request, expected_version)
         self._ensure_pending(request, "reject")
         if note is None or not note.strip():
             raise InvalidLeaveRequestError("A rejection needs a reason (BR-6).")
@@ -180,11 +190,14 @@ class LeaveService:
         return request
 
     @audit
-    async def cancel(self, request_id: str, employee_id: str) -> LeaveRequest:
+    async def cancel(
+        self, request_id: str, employee_id: str, *, expected_version: int | None = None
+    ) -> LeaveRequest:
         """Cancel your own pending request (FR-8, FR-9)."""
         request, employee = await self._load(request_id)
         if request.employee_id != employee_id:
             raise NotAuthorisedError("Only the employee who made the request can cancel it (BR-6).")
+        self._ensure_version(request, expected_version)
         self._ensure_pending(request, "cancel")
 
         balance = await self._repo.get_balance(employee.id, request.leave_type, lock=True)
@@ -230,6 +243,17 @@ class LeaveService:
         """
         request = await self._repo.get_request(request_id, lock=True)
         return request, await self._repo.get_employee(request.employee_id)
+
+    @staticmethod
+    def _ensure_version(request: LeaveRequest, expected_version: int | None) -> None:
+        """Optimistic check requested by the client (If-Match, SPEC DB-12).
+
+        Runs after the request row is locked, so the version compared here is the
+        latest committed one. None means the client did not ask for the check;
+        the row lock alone then keeps concurrent actions safe.
+        """
+        if expected_version is not None and request.version != expected_version:
+            raise ConcurrentUpdateError("LeaveRequest", request.id)
 
     async def _ensure_manager_of(self, approver_id: str, employee: Employee) -> None:
         """Only the requester's own manager may decide (BR-6); this also blocks self-approval."""

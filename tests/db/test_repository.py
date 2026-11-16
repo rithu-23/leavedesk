@@ -5,40 +5,20 @@ These tests commit real data, so each starts from an emptied test database
 """
 
 from collections.abc import Iterator
-from datetime import date
 from decimal import Decimal
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import event
 
-from leavedesk.api.main import create_app
-from leavedesk.api.settings import Settings
-from leavedesk.db.models import TenantRow
 from leavedesk.db.repository import PostgresLeaveRepository
 from leavedesk.domain.exceptions import ConcurrentUpdateError, OverlappingLeaveError
 from leavedesk.domain.models import LeaveRequest, LeaveStatus, LeaveType
-from tests.api.support import JWT_SECRET, PASSWORD, RecordingNotifier, auth_headers
+from tests.api.support import auth_headers
 from tests.db.conftest import libpq_url
-from tests.helpers import TODAY
-
-Headers = dict[str, str]
-
-
-def nov(day: int) -> date:
-    return date(2026, 11, day)
-
-
-def postgres_app(database_url: str) -> TestClient:
-    settings = Settings(
-        jwt_secret=JWT_SECRET,  # type: ignore[arg-type]
-        demo_password=PASSWORD,  # type: ignore[arg-type]
-        database_url=database_url,  # type: ignore[arg-type]
-        _env_file=None,  # type: ignore[call-arg]
-    )
-    return TestClient(create_app(settings, clock=lambda: TODAY, notifiers=[RecordingNotifier()]))
+from tests.db.support import Headers, nov, postgres_app, sessions
+from tests.db.support import apply as apply_on
 
 
 @pytest.fixture
@@ -48,18 +28,7 @@ def client(app_database_url: str) -> Iterator[TestClient]:
 
 
 def apply(client: TestClient, headers: Headers, start: int, end: int) -> str:
-    response = client.post(
-        "/leave-requests",
-        json={
-            "leave_type": "ANNUAL",
-            "start_date": nov(start).isoformat(),
-            "end_date": nov(end).isoformat(),
-            "reason": "Family trip to Ooty",
-        },
-        headers=headers,
-    )
-    assert response.status_code == 201, response.text
-    return str(response.json()["id"])
+    return apply_on(client, headers, nov(start), nov(end))
 
 
 # ---------- DB-2: durable storage ----------
@@ -160,49 +129,31 @@ def test_listing_requests_has_no_n_plus_1_queries(client: TestClient) -> None:
 # ---------- repository-level error translation ----------
 
 
-async def _tenant_and_sessions(
-    url: str,
-) -> tuple[int, async_sessionmaker[AsyncSession], object]:
-    engine = create_async_engine(url)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        tenant_pk = await session.scalar(
-            select(TenantRow.id).where(TenantRow.public_id == "T-DEMO")
-        )
-    assert tenant_pk is not None
-    return tenant_pk, factory, engine
-
-
 async def test_exclude_violation_becomes_overlapping_leave_error(client: TestClient) -> None:
     """Bypass LeaveService's Python check to prove the database rule (EXCLUDE) is mapped to 409."""
     url = client.app.state.leavedesk.settings.database_url.get_secret_value()  # type: ignore[attr-defined]
-    tenant_pk, factory, engine = await _tenant_and_sessions(url)
-    try:
-        async with factory() as session, session.begin():
-            repo = PostgresLeaveRepository(session, tenant_pk)
-            first = LeaveRequest(
-                employee_id="E-ANA",
-                leave_type=LeaveType.ANNUAL,
-                start_date=nov(11),
-                end_date=nov(13),
-                reason="Family trip to Ooty",
-                days=Decimal("3"),
-            )
-            await repo.add_request(first)
-            clash = first.model_copy(update={"id": "LR-clash", "start_date": nov(13)})
-            with pytest.raises(OverlappingLeaveError):
-                await repo.add_request(clash)
-            await session.rollback()
-    finally:
-        await engine.dispose()  # type: ignore[attr-defined]
+    async with sessions(url) as (tenant_pk, factory), factory() as session, session.begin():
+        repo = PostgresLeaveRepository(session, tenant_pk)
+        first = LeaveRequest(
+            employee_id="E-ANA",
+            leave_type=LeaveType.ANNUAL,
+            start_date=nov(11),
+            end_date=nov(13),
+            reason="Family trip to Ooty",
+            days=Decimal("3"),
+        )
+        await repo.add_request(first)
+        clash = first.model_copy(update={"id": "LR-clash", "start_date": nov(13)})
+        with pytest.raises(OverlappingLeaveError):
+            await repo.add_request(clash)
+        await session.rollback()
 
 
 async def test_db13_stale_update_becomes_concurrent_update_error(client: TestClient) -> None:
     ana = auth_headers(client, "ana@leavedesk.test")
     request_id = apply(client, ana, 11, 13)
     url = client.app.state.leavedesk.settings.database_url.get_secret_value()  # type: ignore[attr-defined]
-    tenant_pk, factory, engine = await _tenant_and_sessions(url)
-    try:
+    async with sessions(url) as (tenant_pk, factory):
         async with factory() as first_session, factory() as second_session:
             first = PostgresLeaveRepository(first_session, tenant_pk)
             second = PostgresLeaveRepository(second_session, tenant_pk)
@@ -222,5 +173,3 @@ async def test_db13_stale_update_becomes_concurrent_update_error(client: TestCli
 
         response = client.get(f"/leave-requests/{request_id}", headers=ana)
         assert response.json()["status"] == "cancelled"  # the first change was kept
-    finally:
-        await engine.dispose()  # type: ignore[attr-defined]

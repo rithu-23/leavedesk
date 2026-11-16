@@ -8,11 +8,13 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from sqlalchemy.exc import DBAPIError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from leavedesk.api.security import AuthenticationError
 from leavedesk.domain.exceptions import (
     ConcurrentUpdateError,
+    DatabaseBusyError,
     InsufficientBalanceError,
     InvalidLeaveRequestError,
     InvalidTransitionError,
@@ -107,6 +109,46 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     return error_response(request, exc.status_code, code, message)
 
 
+# SQLSTATEs that mean "the database was too busy", not "the request was wrong" (SCHEMA.md 6).
+BUSY_SQLSTATES = {
+    "55P03",  # lock_not_available: waited longer than lock_timeout (2 s)
+    "57014",  # query_canceled: ran longer than statement_timeout (5 s)
+    "40P01",  # deadlock_detected: should not happen (fixed lock order), but is safe to retry
+}
+
+
+def _busy_response(request: Request) -> JSONResponse:
+    response = error_response(
+        request,
+        503,
+        "DATABASE_BUSY",
+        "The database is busy right now; nothing was saved. Please try again.",
+    )
+    response.headers["Retry-After"] = "1"
+    return response
+
+
+async def _database_busy(request: Request, exc: Exception) -> JSONResponse:
+    return _busy_response(request)
+
+
+async def _database_error(request: Request, exc: Exception) -> JSONResponse:
+    """A database error that reached the API. Busy -> 503; anything else is a bug -> 500.
+
+    The SQL and its parameters are never put in the response (they could contain data);
+    the full error goes to the log with the request id.
+    """
+    assert isinstance(exc, DBAPIError)
+    if getattr(exc.orig, "sqlstate", None) in BUSY_SQLSTATES:
+        logger.warning(
+            "database busy request_id=%s sqlstate=%s",
+            getattr(request.state, "request_id", None),
+            getattr(exc.orig, "sqlstate", None),
+        )
+        return _busy_response(request)
+    return await _unexpected_error(request, exc)
+
+
 async def _unexpected_error(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("unhandled error request_id=%s", getattr(request.state, "request_id", None))
     return error_response(
@@ -118,6 +160,8 @@ async def _unexpected_error(request: Request, exc: Exception) -> JSONResponse:
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(DatabaseBusyError, _database_busy)
+    app.add_exception_handler(DBAPIError, _database_error)
     app.add_exception_handler(LeaveDeskError, _domain_error)
     app.add_exception_handler(AuthenticationError, _authentication_error)
     app.add_exception_handler(RequestValidationError, _request_validation_error)
