@@ -95,3 +95,4 @@ class Page(BaseModel, Generic[T]):
     total: int
     limit: int
     offset: int
+    next_cursor: str | None = None  # v1.1: send back as ?cursor= for the next page

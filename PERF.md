@@ -130,6 +130,8 @@ WHERE (start_date, id) > (:last_start_date, :last_id) ORDER BY start_date, id LI
   partial, and why the redundant single-column index is dropped.
 - **On a live table** these indexes would be built with `CREATE INDEX CONCURRENTLY` in a
   non-transactional revision, so writes are not blocked while they build.
-- **Known gap, next fix:** `GET /leave-requests` still loads the visible requests and pages them in Python.
-  The database side is ready (the index above). Moving the filter, sort and keyset cursor into the SQL
-  query (SPEC DB-32 to DB-34) is the next task.
+- **In the API:** `GET /leave-requests` filters, counts, sorts and pages in SQL
+  (`PostgresLeaveRepository.page_requests`): `?cursor=` runs the keyset query above
+  (`WHERE (start_date, id) > (:d, :i) ORDER BY start_date, id LIMIT n+1`, one extra row tells whether a
+  next page exists), and `next_cursor` in the response is the opaque cursor for the next page. Plain
+  `offset` still works as in v1.0 (SPEC DB-32 to DB-34, `tests/api/test_pagination_api.py`).
