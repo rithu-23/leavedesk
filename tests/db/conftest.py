@@ -73,3 +73,20 @@ def app(migrated: Config) -> Iterator[psycopg.Connection]:
     with psycopg.connect(libpq_url(url)) as conn:
         yield conn
         conn.rollback()
+
+
+@pytest.fixture
+def clean_db(migrated: Config) -> None:
+    """Empty the business tables (seed rows stay), for tests that commit real data."""
+    url = _require(SETTINGS.test_migration_database_url)
+    with psycopg.connect(libpq_url(url), autocommit=True) as conn:
+        conn.execute(
+            "TRUNCATE employees, users, leave_requests, leave_balances, leave_ledger, "
+            "audit_log, notifications RESTART IDENTITY CASCADE"
+        )
+
+
+@pytest.fixture
+def app_database_url(clean_db: None) -> str:
+    """The app role's SQLAlchemy URL for the test database, on an emptied database."""
+    return _require(SETTINGS.test_database_url)

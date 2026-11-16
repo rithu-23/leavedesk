@@ -1,6 +1,6 @@
-"""FastAPI dependencies: shared state, the signed-in employee, the service, role checks."""
+"""FastAPI dependencies: shared state, storage, the signed-in employee, the service, role checks."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, Query, Request
@@ -8,10 +8,12 @@ from fastapi.security import OAuth2PasswordBearer
 
 from leavedesk.api.security import AuthenticationError, decode_access_token
 from leavedesk.api.state import AppState
+from leavedesk.db.repository import PostgresLeaveRepository
 from leavedesk.domain.exceptions import NotAuthorisedError, NotFoundError
 from leavedesk.domain.inbox import Inbox
 from leavedesk.domain.models import Employee, Notification
 from leavedesk.domain.notifications import Notifier, send_all
+from leavedesk.domain.repository import LeaveRepository
 from leavedesk.domain.service import LeaveService
 
 # auto_error=False: we raise our own AuthenticationError, so 401s use the error contract.
@@ -26,29 +28,57 @@ def get_app_state(request: Request) -> AppState:
 StateDep = Annotated[AppState, Depends(get_app_state)]
 
 
-async def _employee_from_token(token: str | None, state: AppState) -> Employee:
+async def get_repository(state: StateDep) -> AsyncIterator[LeaveRepository]:
+    """Storage for one request: one unit of work (SPEC BR-10, SCHEMA.md 7).
+
+    PostgreSQL mode: a new session and transaction per request. If the route
+    raises, the exception passes back through this `yield`, `session.begin()`
+    rolls everything back, and the error handlers build the response. If it
+    succeeds, leaving `session.begin()` commits.
+
+    scope="function" (see RepoDep) makes this code run when the route function
+    returns, BEFORE the response is sent. So a client never receives 201 for a
+    change that later fails to commit, and a follow-up request always sees it.
+    """
+    if state.session_factory is None or state.tenant_pk is None:
+        assert state.repository is not None
+        yield state.repository  # in-memory mode: nothing to open or commit
+        return
+    async with state.session_factory() as session, session.begin():
+        yield PostgresLeaveRepository(session, state.tenant_pk)
+
+
+# Every dependency in a request that asks for RepoDep gets the same repository
+# (FastAPI caches it per request), so authentication and the action share one transaction.
+RepoDep = Annotated[LeaveRepository, Depends(get_repository, scope="function")]
+
+
+async def _employee_from_token(
+    token: str | None, state: AppState, repo: LeaveRepository
+) -> Employee:
     if not token:
         raise AuthenticationError("Not authenticated.")
     data = decode_access_token(token, state.settings)
     try:
-        return await state.repository.get_employee(data.employee_id)
+        return await repo.get_employee(data.employee_id)
     except NotFoundError as error:
         raise AuthenticationError("Invalid or expired token.") from error
 
 
 async def get_current_employee(
-    state: StateDep, token: Annotated[str | None, Depends(oauth2_scheme)]
+    state: StateDep, repo: RepoDep, token: Annotated[str | None, Depends(oauth2_scheme)]
 ) -> Employee:
-    return await _employee_from_token(token, state)
+    return await _employee_from_token(token, state, repo)
 
 
 async def get_stream_employee(
     state: StateDep,
+    repo: RepoDep,
     token: Annotated[str | None, Depends(oauth2_scheme)],
     access_token: Annotated[str | None, Query()] = None,
 ) -> Employee:
     """Browsers' EventSource can't send headers, so the stream also accepts ?access_token=."""
-    return await _employee_from_token(token or access_token, state)
+    return await _employee_from_token(token or access_token, state, repo)
 
 
 CurrentEmployee = Annotated[Employee, Depends(get_current_employee)]
@@ -72,10 +102,14 @@ class BackgroundNotifier(Notifier):
         self._pending.append(notification)  # ...and every one joins the same batch
 
 
-def get_service(state: StateDep, background_tasks: BackgroundTasks) -> LeaveService:
-    """A LeaveService for this request whose notifications are sent in the background."""
+def get_service(state: StateDep, repo: RepoDep, background_tasks: BackgroundTasks) -> LeaveService:
+    """A LeaveService for this request whose notifications are sent in the background.
+
+    Background tasks run after the response, so in PostgreSQL mode they run
+    after the commit: nobody is told about a change that was rolled back.
+    """
     return LeaveService(
-        state.repository,
+        repo,
         state.policies,
         notifiers=[BackgroundNotifier(background_tasks, state.notifiers)],
         clock=state.clock,
@@ -85,8 +119,8 @@ def get_service(state: StateDep, background_tasks: BackgroundTasks) -> LeaveServ
 ServiceDep = Annotated[LeaveService, Depends(get_service)]
 
 
-def get_inbox(state: StateDep) -> Inbox:
-    return Inbox(state.repository)
+def get_inbox(repo: RepoDep) -> Inbox:
+    return Inbox(repo)
 
 
 InboxDep = Annotated[Inbox, Depends(get_inbox)]
