@@ -84,6 +84,13 @@ class EmployeeRow(Base):
         # Case-insensitive email per tenant (SCHEMA.md 4.3); an expression index, so the
         # revision creates it with op.execute. Declared here so Alembic knows it exists.
         Index("uq_employees_tenant_id_lower_email", "tenant_id", text("lower(email)"), unique=True),
+        # name ILIKE '%text%': a B-tree cannot help with a leading wildcard; trigrams can.
+        Index(
+            "ix_employees_name_trgm",
+            "name",
+            postgresql_using="gin",
+            postgresql_ops={"name": "gin_trgm_ops"},
+        ),
     )
 
     id: Mapped[int] = _id()
@@ -154,6 +161,24 @@ class LeaveRequestRow(Base):
         CheckConstraint(
             "status <> 'rejected' OR decision_note IS NOT NULL", name="rejection_has_note"
         ),
+        # Query indexes (SCHEMA.md 5.2, proven in PERF.md):
+        # manager's pending queue: only pending rows, equality column first, then the sort.
+        Index(
+            "ix_leave_requests_pending",
+            "employee_id",
+            "start_date",
+            "id",
+            postgresql_where=text("status = 'pending'"),
+        ),
+        # the list endpoint's default order; makes keyset pagination a short index range.
+        Index("ix_leave_requests_start_date_id", "start_date", "id"),
+        # an employee's history, newest first, with id as the keyset tie-breaker.
+        Index(
+            "ix_leave_requests_history",
+            "employee_id",
+            text("start_date DESC"),
+            text("id DESC"),
+        ),
         # The EXCLUDE constraint (no overlapping pending/approved leave) is added in the
         # revision with op.execute: SCHEMA.md 4.6.
     )
@@ -161,7 +186,9 @@ class LeaveRequestRow(Base):
     id: Mapped[int] = _id()
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False)
     public_id: Mapped[str] = mapped_column(Text, nullable=False)
-    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
+    # No single-column index: ix_leave_requests_history starts with employee_id, so it
+    # also covers this foreign key (SCHEMA.md 5.2, revision 0003).
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False)
     leave_type_id: Mapped[int] = mapped_column(
         ForeignKey("leave_types.id"), nullable=False, index=True
     )

@@ -286,3 +286,23 @@
 2. **The rollback test needed to check NOTIFY too:** checking only the tables would miss a trigger that fired anyway. DB-23 also LISTENs and confirms no message arrives, because PostgreSQL delivers NOTIFY only on commit.
 3. **Holding locks while sending:** the sender keeps the claimed rows locked while it calls the channels. Fine for the instant email stub, but a slow real mail service would hold transactions open (and the app role's 10-second idle-in-transaction timeout would cut it off). Documented the trade-off in `outbox.py` and the better design for slow channels: mark rows "sending" with a lease, then commit before sending.
 4. **Spec drift:** SCHEMA.md 4.11 cited DB-19/20/21, numbers from a draft before SPEC.md section 12 was finalised (the real ones are DB-23 to DB-26), and planned 0002 for idempotency keys although the outbox was built first. Both corrected (SCHEMA.md v1.2).
+
+
+---
+
+## Entry 15 — Indexes and query plans (Capstone 3, task T22)
+
+**Prompt:** Seed about 100,000 leave requests with generate_series; capture EXPLAIN (ANALYZE, BUFFERS) before and after indexing for the manager's pending queue, an employee's history and the name search; use a composite, a partial and a pg_trgm index and explain the column order; compare OFFSET with keyset pagination.
+
+**Generated:** revision 0003 (pg_trgm, four indexes, drop of the redundant foreign key index), model updates, `scripts/perf.py`, `PERF.md`.
+
+**Checked / changed:**
+- Read every plan, not just the timings. The first run looked fine on the surface, but three of its results were wrong for the reasons below.
+- `alembic upgrade`, `downgrade -1`, `upgrade`, `alembic check` clean; the full suite passes in both modes; DB-30 (every foreign key indexed) still passes after the single-column index is dropped.
+
+**Issues caught:**
+1. **The "before" plan for Q1 was not a sequential scan:** the planner used the GiST index behind the EXCLUDE constraint, because `btree_gist` lets it serve `employee_id = ...`. Removing only the foreign key index was not a real "no index" baseline. The rolled-back transaction now also drops the constraint, and PERF.md records the finding.
+2. **Unrealistic test queries:** the person lookups (`public_id = 'P-1'`) left out `tenant_id`, so they could not use the unique `(tenant_id, public_id)` index and did their own sequential scan of employees, adding noise to every plan. The app always filters by tenant; the queries now do too.
+3. **A keyset query that wasn't keyset:** the generated keyset query computed its cursor with `OFFSET 49999` in a subquery, which does the same work as the OFFSET it was supposed to beat. A real cursor comes from the previous page, so the script now fetches it first and passes the values in (20 rows read instead of 50,020).
+4. **Autogenerate's ordering:** it dropped the old foreign key index before creating the replacement, leaving the foreign key unindexed in between, and it did not know `pg_trgm` must exist first. Reordered by hand.
+5. **Honest result, not a sales pitch:** with the Part A foreign key index, Q1 was already fast; the partial index's main benefit at this data shape is size (416 KB vs 3,984 KB) and removing per-row filtering. PERF.md says so instead of claiming a 20x win against an artificial baseline only.

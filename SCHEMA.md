@@ -1,6 +1,6 @@
 # LeaveDesk — Database Schema (Capstone 3)
 
-**Version:** 1.2 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
+**Version:** 1.3 · **Builds on:** SPEC.md v1.3, API_SPEC.md v1.1 · **Database:** PostgreSQL 17 · **Author:** Rithu
 
 This document explains what the database stores, which rules the database itself enforces,
 and why each design choice was made. The SQLAlchemy models (`leavedesk/db/models.py`) and the
@@ -338,7 +338,7 @@ starts with that column already exists (for example the `UNIQUE (employee_id, le
 | all tenant tables | `tenant_id` | `ix_<table>_tenant_id` (or a UNIQUE starting with `tenant_id`) |
 | `employees` | `department_id`, `manager_id` | `ix_employees_department_id`, `ix_employees_manager_id` |
 | `users` | `employee_id` | its UNIQUE constraint |
-| `leave_requests` | `employee_id`, `leave_type_id`, `decided_by` | `ix_leave_requests_employee_id` (replaced in 0004 by the history index, which starts with `employee_id`; see 5.2), `…_leave_type_id`, `…_decided_by` |
+| `leave_requests` | `employee_id`, `leave_type_id`, `decided_by` | `ix_leave_requests_employee_id` (replaced in 0003 by the history index, which starts with `employee_id`; see 5.2), `…_leave_type_id`, `…_decided_by` |
 | `leave_balances` | `employee_id`, `leave_type_id` | UNIQUE `(employee_id, leave_type_id)`, `ix_leave_balances_leave_type_id` |
 | `leave_ledger` | `employee_id`, `leave_type_id`, `leave_request_id` | one index each |
 | `audit_log` | `actor_employee_id` | `ix_audit_log_actor_employee_id` |
@@ -348,23 +348,26 @@ starts with that column already exists (for example the `UNIQUE (employee_id, le
 
 A test (DB-30) queries `pg_constraint` and `pg_index` and fails if any foreign key column lacks an index.
 
-### 5.2 Query indexes (Part B, revision 0004, proven in PERF.md)
+### 5.2 Query indexes (Part B, revision 0003, proven in PERF.md)
 
 | Query | Index | Kind | Column order explained |
 |---|---|---|---|
 | Manager's pending queue (pending requests of the manager's direct reports, oldest start first) | `ix_leave_requests_pending (employee_id, start_date, id) WHERE status = 'pending'` | **Partial** + composite | Only pending rows are stored, a small slice of 100k, so the index stays small. Equality column first (`employee_id`, matched against the manager's reports), then the sort columns, so each report's rows come out already ordered. |
 | An employee's history (newest first, keyset pages) | `ix_leave_requests_history (employee_id, start_date DESC, id DESC)` | **Composite** | Equality column first (`employee_id`), then the sort column (`start_date`), then `id` as the tie-breaker that makes keyset pagination exact. Putting `start_date` first would scan every employee's rows in the date range. `tenant_id` is left out on purpose: `employee_id` is a globally unique bigint, so it already implies the tenant, and a leading `tenant_id` would only widen the index. (`tenant_id` does lead where the key alone is not unique across tenants, such as `public_id` and `lower(email)`.) |
 | Employee name search (`name ILIKE '%ana%'`) | `ix_employees_name_trgm gin (name gin_trgm_ops)` | **pg_trgm GIN** | A B-tree can only use a fixed prefix (`'ana%'`); a leading wildcard needs trigram matching. |
+| The request list in its default order, and keyset pagination | `ix_leave_requests_start_date_id (start_date, id)` | Composite | The list's sort order; `id` makes the order total, so a `(start_date, id)` cursor names exactly one position. |
 
 Because `ix_leave_requests_history` starts with `employee_id`, it also covers that foreign key, so
-revision 0004 drops the now-redundant single-column `ix_leave_requests_employee_id` (every extra
+revision 0003 drops the now-redundant single-column `ix_leave_requests_employee_id` (every extra
 index slows down every insert and update).
 
-**How PERF.md proves each index (Done when):** "before" plans are captured at revision 0003, with the
-100k seed loaded and `ANALYZE` run. Where the 0001 foreign key index on `leave_requests.employee_id`
-would otherwise stand in, the "before" plan runs inside `BEGIN; DROP INDEX …; EXPLAIN (ANALYZE, BUFFERS) …; ROLLBACK;`
-DDL in PostgreSQL is transactional, so the index is never really dropped, but the plan shows what the
-query costs with no supporting index. Then 0004 is applied and the "after" plans are captured.
+**How PERF.md proves each index (Done when):** `scripts/perf.py` captures the "before" plans at revision
+0002, with the 100k seed loaded and `ANALYZE` run. The foreign key index on `leave_requests.employee_id`
+and the GiST index behind the EXCLUDE constraint (which `btree_gist` lets serve `employee_id = …`) would
+otherwise stand in, so the "before" plan runs inside
+`BEGIN; DROP INDEX …; ALTER TABLE … DROP CONSTRAINT …; EXPLAIN (ANALYZE, BUFFERS) …; ROLLBACK;`
+DDL in PostgreSQL is transactional, so nothing is really dropped, but the plan shows what the query
+costs with no supporting index. Then 0003 is applied and the "after" plans are captured.
 
 Query indexes are not created `CONCURRENTLY` inside Alembic (that cannot run inside a transaction);
 on a live production table we would use `CREATE INDEX CONCURRENTLY` in a non-transactional revision.
@@ -420,8 +423,8 @@ tenant tables, with the app setting `app.tenant_id` at the start of each transac
 |---|---|---|
 | `0001_initial_schema` | `feature/db-infra` | Extensions (`btree_gist`), tables 4.1–4.10, constraints, EXCLUDE, FK indexes, unread partial index, append-only triggers, revoke `UPDATE, DELETE` on the append-only tables, seed tenant `T-DEMO`, department `Engineering` and the three leave types |
 | `0002_notification_outbox` | `feature/db-notifications` | Table 4.11, outbox index, `pg_notify` trigger on `notifications` |
-| `0003_idempotency_keys` | `feature/idempotency` | Table 4.12 |
-| `0004_query_indexes` | `feature/perf` | `pg_trgm` extension, the three indexes in 5.2, drop the redundant `ix_leave_requests_employee_id` |
+| `0003_query_indexes` | `feature/perf` | `pg_trgm` extension, the four indexes in 5.2, drop the redundant `ix_leave_requests_employee_id` |
+| `0004_idempotency_keys` | `feature/idempotency` | Table 4.12 (not built yet) |
 
 Every revision has a working `downgrade()`; DB-3 checks `upgrade head → downgrade base → upgrade head`.
 
@@ -452,3 +455,4 @@ Every revision has a working `downgrade()`; DB-3 checks `upgrade head → downgr
 | 1.0 | 2026-11-16 | Initial schema for Capstone 3 |
 | 1.1 | 2026-11-16 | Section 6: grants come from default privileges set by the init script, revisions only revoke; 4.8: TRUNCATE note; section 8: revision 0001 contents updated to match the code. |
 | 1.2 | 2026-11-16 | Outbox built before idempotency, so revisions renumbered (0002 outbox, 0003 idempotency keys); 4.11 describes the real NOTIFY payload, the two senders and the retry policy, and cites the correct SPEC criteria (DB-23 to DB-26). |
+| 1.3 | 2026-11-16 | Query indexes are revision 0003 (built before idempotency); fourth index `(start_date, id)` for the list order and keyset pagination; the PERF.md method also drops the EXCLUDE constraint inside the rolled-back transaction, because its GiST index can serve `employee_id = …`. |
