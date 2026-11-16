@@ -198,3 +198,29 @@
 2. **Seeding could no longer run in the factory:** `create_app` is a plain function, so it cannot `await register_employee`. Moved seeding into a lifespan handler, which both uvicorn and `with TestClient(app)` run before the first request.
 3. **Clumsy generated test code:** the AI's first edit of `tests/test_service.py` produced `assert ((await annual(service)).pending, (await annual(service)).available) == ...`, which reads the balance twice. Rewritten to read it once into a variable.
 4. **Known follow-up:** the Day 2 test for API-28 calls `users.find_by_email()` synchronously, so the user store stays sync in this step. Step 5 (PostgreSQL users) must keep that method callable without `await`, or that unchanged test breaks.
+
+
+---
+
+## Entry 11 — Database infrastructure, models and revision 0001 (Capstone 3, tasks T16–T17)
+
+**Prompt:** Add SQLAlchemy 2 (async), psycopg 3 and Alembic; a Docker init script for the migrator and app roles with timeouts and a test database; SQLAlchemy models for SCHEMA.md tables 4.1–4.10; revision 0001 with the EXCLUDE constraint, append-only ledger and seed rows; tests for the database rules.
+
+**Generated:** `leavedesk/db/` (base with a naming convention, models, engine), `alembic.ini`, `migrations/` (env.py and revision 0001), `docker/postgres-init/01-roles.sh`, `tests/db/` (17 tests), and changes to `docker-compose.yml` (`migrate` service, database published on localhost only), `Dockerfile`, `.env.example`, settings, requirements and README.
+
+**Checked / changed:**
+- Drafted the table commands with `alembic revision --autogenerate`, then reviewed them line by line against SCHEMA.md before adding the hand-written parts.
+- Ran on a real PostgreSQL: `alembic upgrade head`, `alembic check` ("No new upgrade operations detected"), `downgrade base`, `upgrade head`, `check` again (DB-3).
+- `pytest tests/db`: 17 passed (DB-3 to DB-6, DB-8, DB-14, DB-29, DB-30, plus seed, balance-limit, per-employee overlap and version-column tests). Without the test URLs, the same tests are skipped and the other 120 still pass.
+- `docker compose config` validates the Compose file.
+
+**Issues caught:**
+1. **`alembic check` cannot see the EXCLUDE constraint.** Constraints written with `op.execute` are invisible to autogenerate, so "models match the database" says nothing about them. That is why DB-6 tests the overlap rule directly in SQL.
+2. **Migrations would have required the JWT secret:** reusing the API's `Settings` in `env.py` makes Alembic fail without `JWT_SECRET` and `DEMO_PASSWORD`. Added a small `MigrationSettings` that reads only `MIGRATION_DATABASE_URL`.
+3. **A `%` in a password breaks Alembic's config:** `Config.set_main_option` uses configparser, which treats `%` as special. The test fixture doubles it; `.env.example` also recommends letters and digits only.
+4. **The plan said "grants in the revision", which would mean repeating `GRANT` in every future revision.** Switched to `ALTER DEFAULT PRIVILEGES` in the init script, so new tables are usable automatically and revisions only revoke. Updated SCHEMA.md to v1.1 to match the code.
+5. **TRUNCATE bypasses row triggers:** the append-only trigger does not stop `TRUNCATE`. Confirmed the app role has no `TRUNCATE` privilege (default privileges grant only SELECT/INSERT/UPDATE/DELETE) and documented it in SCHEMA.md 4.8.
+6. **Silent N+1 risk:** relationships default to lazy loading, which in async SQLAlchemy fails with a confusing `MissingGreenlet` error, and in sync code silently issues one query per row. Every relationship is `lazy="raise"`, so a missing `selectinload` fails at once with a clear message.
+7. **Init scripts run only once:** the postgres image runs `/docker-entrypoint-initdb.d` only on an empty data volume, so an existing Capstone 2 volume would never get the roles. README and the Compose header say to run `docker compose down -v` first.
+8. **Optimistic locking was silently switched off (the most serious one):** the generated models had `__mapper_args__ = {"version_id_col": "version"}`. SQLAlchemy accepted the string without any error or warning, but `mapper.version_id_col` stayed the string `"version"` instead of the column, so no version check would ever happen and DB-12/DB-13 could never pass. Found by inspecting the configured mapper. Fixed by referencing the column object (`{"version_id_col": version}`, placed after the column), and added `test_version_columns_are_wired_for_optimistic_locking`, confirmed to fail with the old line and pass with the fix.
+9. **Port clash found only on the real machine:** on the Mac, `docker compose up -d db` failed with "address already in use" on 5432, and Alembic then reached a *different* PostgreSQL (version 18, installed in August with the postgresql.org installer, running as the `postgres` user), so the error looked like a wrong password. Plain `lsof` showed nothing because that server belongs to another macOS user; `ps aux` and `sudo lsof` found it. Fixed by publishing the Docker database on host port 5433 (containers still use `db:5432`) and updating `.env.example` and the README to match. Lesson: "password authentication failed" can mean "connected to the wrong server".

@@ -3,8 +3,8 @@
 LeaveDesk is an employee leave-management app, built step by step during the AYPOLS Enablement Workshop.
 
 - **Day 1:** a specification (`SPEC.md`) and a plain-Python domain package with the leave rules.
-- **Day 2 (current):** a tested REST API with FastAPI (`API_SPEC.md`), running in Docker.
-- **Day 3:** storage on PostgreSQL.
+- **Day 2:** a tested REST API with FastAPI (`API_SPEC.md`), running in Docker.
+- **Day 3 (current):** storage on PostgreSQL with SQLAlchemy 2 and Alembic (`SCHEMA.md`).
 - **Day 4:** an Angular front end.
 
 ## Requirements
@@ -40,6 +40,31 @@ cp .env.example .env          # then replace every value in .env
 | Run all tests | `python -m pytest` |
 | Lint and format check | `ruff check . && ruff format --check .` |
 
+## Database (Capstone 3)
+
+PostgreSQL runs in Docker; Alembic and the tests connect to it from your Mac on `localhost:5433`
+(not 5432, which a PostgreSQL installed directly on the Mac often already uses).
+The first time (and whenever `docker/postgres-init/` changes), start from an empty volume so the
+role script runs. This deletes all database data:
+
+```bash
+docker compose down -v
+docker compose up -d db
+```
+
+| Task | Command |
+|---|---|
+| Apply migrations to the main database | `alembic upgrade head` |
+| Check the models match the database | `alembic check` |
+| Undo every migration | `alembic downgrade base` |
+| Run only the database tests | `python -m pytest tests/db` |
+| Open a SQL prompt as the app role | `docker compose exec db psql -U leavedesk_app -d leavedesk` |
+
+The two database roles (SCHEMA.md section 6): `leavedesk_migrator` owns the schema and runs Alembic;
+`leavedesk_app` is what the API uses and cannot change the schema. Their passwords and URLs live in
+`.env` (see `.env.example`). The tests in `tests/db` use the separate `leavedesk_test` database and
+are skipped when `TEST_DATABASE_URL` / `TEST_MIGRATION_DATABASE_URL` are not set.
+
 ## Project structure
 
 | Path | What it holds |
@@ -51,11 +76,14 @@ cp .env.example .env          # then replace every value in .env
 | `leavedesk/api/errors.py` | The single error format and exception handlers |
 | `leavedesk/api/middleware.py` | Request ID and request logging |
 | `leavedesk/api/stream.py` | Live notifications over Server-Sent Events |
+| `leavedesk/db/` | SQLAlchemy models, engine and (from Step 5) the PostgreSQL repository |
+| `migrations/`, `alembic.ini` | Alembic migrations (the only way the schema changes) |
+| `docker/postgres-init/` | Creates the migrator and app roles and the test database on first start |
 | `leavedesk/demo.py` | Day 1 demo of the happy path and every edge case |
-| `tests/` | Domain tests; `tests/api/` holds the API tests |
-| `SPEC.md`, `API_SPEC.md` | Specifications and acceptance criteria |
+| `tests/` | Domain tests; `tests/api/` holds the API tests; `tests/db/` needs PostgreSQL |
+| `SPEC.md`, `API_SPEC.md`, `SCHEMA.md` | Specifications, acceptance criteria and the database design |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
-| `Dockerfile`, `docker-compose.yml` | Container image and the `api` + `db` services |
+| `Dockerfile`, `docker-compose.yml` | Container image and the `db`, `migrate` and `api` services |
 | `.env.example` | Every setting the app needs, with placeholder values |
 | `requirements.txt`, `requirements-dev.txt` | Runtime libraries; test and lint tools |
 | `pyproject.toml` | pytest and Ruff settings |
