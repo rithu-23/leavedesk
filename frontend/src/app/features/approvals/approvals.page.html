@@ -1,0 +1,79 @@
+<div class="header">
+  <h1>Approvals</h1>
+  @if (store.status() === 'success') {
+    <p class="count" aria-live="polite">{{ store.count() }} waiting</p>
+  }
+</div>
+
+@if (store.loading()) {
+  <mat-progress-bar mode="indeterminate" aria-label="Loading pending requests" />
+}
+
+@if (store.status() === 'error') {
+  <div class="state" role="alert">
+    <p>{{ store.error()?.message }}</p>
+    <button mat-stroked-button (click)="store.load()">Retry</button>
+  </div>
+} @else if (store.isEmpty()) {
+  <p class="state">Nothing waiting for approval</p>
+} @else if (store.items().length > 0) {
+  <div class="table-wrap">
+    <table mat-table [dataSource]="store.items()" aria-label="Pending leave requests">
+      <ng-container matColumnDef="employee">
+        <th mat-header-cell *matHeaderCellDef>Employee</th>
+        <td mat-cell *matCellDef="let r">{{ r.employee_id }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="dates">
+        <th mat-header-cell *matHeaderCellDef>Dates</th>
+        <td mat-cell *matCellDef="let r">
+          {{ r.start_date | date: 'd MMM y' }}
+          @if (r.end_date !== r.start_date) {
+            – {{ r.end_date | date: 'd MMM y' }}
+          }
+          @if (r.half_day) {
+            <span class="tag">½ day</span>
+          }
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="type">
+        <th mat-header-cell *matHeaderCellDef>Type</th>
+        <td mat-cell *matCellDef="let r">{{ r.leave_type | leaveType }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="days">
+        <th mat-header-cell *matHeaderCellDef>Days</th>
+        <td mat-cell *matCellDef="let r">{{ r.days | number: '1.0-1' }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="reason">
+        <th mat-header-cell *matHeaderCellDef>Reason</th>
+        <td mat-cell *matCellDef="let r">{{ r.reason }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef><span class="visually-hidden">Actions</span></th>
+        <td mat-cell *matCellDef="let r" class="actions">
+          <button
+            mat-flat-button
+            (click)="confirmApprove(r)"
+            [attr.aria-label]="'Approve ' + r.employee_id + ' ' + r.start_date"
+          >
+            Approve
+          </button>
+          <button
+            mat-stroked-button
+            (click)="openReject(r)"
+            [attr.aria-label]="'Reject ' + r.employee_id + ' ' + r.start_date"
+          >
+            Reject
+          </button>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="columns"></tr>
+      <tr mat-row *matRowDef="let row; columns: columns"></tr>
+    </table>
+  </div>
+}

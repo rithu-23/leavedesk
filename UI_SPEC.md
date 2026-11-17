@@ -1,6 +1,6 @@
 # LeaveDesk — UI Specification (Capstone 4)
 
-**Version:** 1.2 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
+**Version:** 1.3 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
 
 This document describes the Angular web app that sits on top of the LeaveDesk API: its screens, what each screen shows in every state, and the acceptance criteria (Given/When/Then) that the tests check. It is written before any frontend code, in line with Spec-Driven Development.
 
@@ -124,17 +124,17 @@ All demo users use `DEMO_PASSWORD` from `.env`.
 - Success (201): snackbar "Leave request submitted", the leave store and balance reload, and the user returns to `/leave`.
 - Server errors are shown **inline, above the Submit button**, using the API's `error.message`:
   - 409 `OVERLAPPING_LEAVE` → the overlap message.
-  - 409 `INSUFFICIENT_BALANCE` → the balance message.
+  - 422 `INSUFFICIENT_BALANCE` → the balance message.
   - 422 validation → the message, plus field-level messages from `error.details` where a field can be matched.
 - The form keeps the user's input after an error.
 
 ### 5.4 Manager approvals (lazy-loaded)
 
-- List: `GET /api/leave-requests?status=pending&sort=start_date&limit={size}&offset={offset}` (the API returns only the manager's reports).
+- List: `GET /api/leave-requests?status=pending&sort=start_date&limit=100`. The API returns the manager's reports' requests **and the manager's own**; own requests are left out of the screen because the API refuses self-approval (BR-6). Up to 100 pending requests are shown, without a paginator.
 - Each row: employee id, dates, type, days, reason, **Approve** and **Reject** buttons.
 - **Approve:** confirm dialog ("Approve 3 days of annual leave for E-ANA?") → on confirm the row is removed from the list **immediately** (optimistic update) → `POST /api/leave-requests/{id}/approve` with header `If-Match: {version}`.
 - **Reject:** dialog with a required Reason field → same optimistic removal → `POST /api/leave-requests/{id}/reject` with body `{reason}` and `If-Match: {version}`.
-- **On any error the row is put back where it was** and a snackbar shows the message. On 409 (request changed by someone else, or no longer pending), the list also reloads from the server.
+- **On any error the row is put back where it was** and a snackbar shows the message. On 409 (`CONCURRENT_UPDATE`: changed by someone else; `INVALID_TRANSITION`: no longer pending), the list also reloads from the server.
 
 ### 5.5 Notifications
 
@@ -215,11 +215,11 @@ IDs are referenced by the tests (`UI-n`).
 - **UI-13 Half-day rule.** Given a multi-day range, when Half day is ticked, then "Half day is only allowed for a single day" is shown and Submit is disabled.
 - **UI-14 Submit.** Given a valid form, when Ana submits, then `POST /api/leave-requests` is sent with an `Idempotency-Key` header, a success snackbar appears, and she returns to `/leave` where the new request is pending and `available` has dropped by its days.
 - **UI-15 Overlap error inline.** Given Ana already has leave on those dates, when she submits, then the API's 409 `OVERLAPPING_LEAVE` message appears above the Submit button and her input is kept.
-- **UI-16 Insufficient balance inline.** Given the request needs more days than available, when Ana submits, then the 409 `INSUFFICIENT_BALANCE` message appears inline.
+- **UI-16 Insufficient balance inline.** Given the request needs more days than available, when Ana submits, then the 422 `INSUFFICIENT_BALANCE` message appears inline.
 
 ### Approvals
 
-- **UI-17 Pending queue.** Given Mo is signed in, when he opens `/approvals`, then the lazily loaded screen lists his reports' pending requests, oldest start date first.
+- **UI-17 Pending queue.** Given Mo is signed in, when he opens `/approvals`, then the lazily loaded screen lists his reports' pending requests, oldest start date first, and none of his own.
 - **UI-18 Approve with confirm.** Given a pending request, when Mo presses Approve, then a confirm dialog opens; when he confirms, the row disappears immediately and `POST …/approve` is sent with `If-Match: {version}`.
 - **UI-19 Reject needs a reason.** Given the reject dialog, when the reason is empty, then Reject is disabled; with a reason, the row disappears and `POST …/reject` is sent with `{reason}`.
 - **UI-20 Rollback on error.** Given an optimistic approve or reject, when the API returns an error, then the row is restored at its original position and the error message is shown; on 409 the list reloads.
@@ -294,3 +294,4 @@ Rules: features may import from `core/` and `shared/`, never from each other (th
 | 1.0 | 2026-11-17 | First UI spec for Capstone 4. Backend references corrected to PostgreSQL 17 (the Capstone 4 handoff said 16). |
 | 1.1 | 2026-11-17 | §5.1 and UI-3: fixed lockout hint after 3 failed sign-ins (found during manual testing: users got no hint about the 15-minute lock). §5.3: date format MM/DD/YYYY and a 500-character reason limit made explicit. |
 | 1.2 | 2026-11-17 | Leave types are ANNUAL, SICK and **CASUAL** (the Capstone 4 handoff listed only two; CASUAL exists since Capstone 1 and in the database). All labels come from one typed map; unknown codes are shown as-is. Found during manual testing: CASUAL rows were labelled "Sick". |
+| 1.3 | 2026-11-17 | Checked against the backend code: §5.4 and UI-17, the pending list also contains the manager's own requests, so the screen filters them out (self-approval is refused by the API) and loads up to 100 without a paginator; INSUFFICIENT_BALANCE is 422, not 409 (§5.3, UI-16); 409 codes named (§5.4). |
