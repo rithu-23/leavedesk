@@ -1,6 +1,6 @@
 # LeaveDesk — UI Specification (Capstone 4)
 
-**Version:** 1.3 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
+**Version:** 1.4 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
 
 This document describes the Angular web app that sits on top of the LeaveDesk API: its screens, what each screen shows in every state, and the acceptance criteria (Given/When/Then) that the tests check. It is written before any frontend code, in line with Spec-Driven Development.
 
@@ -138,9 +138,10 @@ All demo users use `DEMO_PASSWORD` from `.env`.
 
 ### 5.5 Notifications
 
-- **Bell** (toolbar): a Material badge shows the unread count (hidden when 0). The count is a `computed()` signal over the notification store's list.
+- **Bell** (toolbar): a Material badge shows the unread count (hidden when 0). The count is a `computed()` signal over the notification store's list (the 20 most recent notifications).
 - **On sign-in** the store loads `GET /api/notifications?limit=20` and opens `EventSource('/api/notifications/stream?access_token={jwt}')`. (EventSource cannot send headers, so the token goes in the query string; see §9.)
-- **On each `notification` event** the new item is added to the top of the list and a snackbar shows its message for 5 seconds with a **View** action that opens the panel. If the event is about a decision (`approved`, `rejected`, `cancelled`), the leave store and balance also reload, so the employee's screen updates without a refresh.
+- **On each `notification` event** (`submitted`, `approved`, `rejected` or `cancelled`) the new item is added to the top of the list and a snackbar shows its message for 5 seconds with a **View** action that opens the panel. For every event except `submitted`, the leave store and balance also reload, so the employee's screen updates without a refresh.
+- If the browser gives up on the stream (for example after a server restart), it is reopened after 10 seconds while the user is still signed in.
 - **Opening the panel** shows the 20 most recent notifications (newest first, unread in bold) and calls `POST /api/notifications/read-all` if anything is unread; items then show as read.
 - **On sign-out or token expiry** the stream is closed and the store is cleared.
 
@@ -295,3 +296,4 @@ Rules: features may import from `core/` and `shared/`, never from each other (th
 | 1.1 | 2026-11-17 | §5.1 and UI-3: fixed lockout hint after 3 failed sign-ins (found during manual testing: users got no hint about the 15-minute lock). §5.3: date format MM/DD/YYYY and a 500-character reason limit made explicit. |
 | 1.2 | 2026-11-17 | Leave types are ANNUAL, SICK and **CASUAL** (the Capstone 4 handoff listed only two; CASUAL exists since Capstone 1 and in the database). All labels come from one typed map; unknown codes are shown as-is. Found during manual testing: CASUAL rows were labelled "Sick". |
 | 1.3 | 2026-11-17 | Checked against the backend code: §5.4 and UI-17, the pending list also contains the manager's own requests, so the screen filters them out (self-approval is refused by the API) and loads up to 100 without a paginator; INSUFFICIENT_BALANCE is 422, not 409 (§5.3, UI-16); 409 codes named (§5.4). |
+| 1.4 | 2026-11-17 | §5.5: event names from the backend (`submitted`, `approved`, `rejected`, `cancelled`); unread count is over the 20 most recent; the stream reconnects after 10 s if the browser gives up. Verified end to end in a real browser against the API. |

@@ -17,6 +17,8 @@
 
   <span class="spacer"></span>
 
+  <app-notification-bell />
+
   @if (auth.user(); as user) {
     <span class="user">{{ user.employeeId }} · {{ user.role }}</span>
   }
