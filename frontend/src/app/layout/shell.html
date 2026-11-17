@@ -2,7 +2,7 @@
   <a class="brand" routerLink="/leave">LeaveDesk</a>
 
   <nav class="links" aria-label="Main">
-    @for (link of links; track link.path) {
+    @for (link of links(); track link.path) {
       <a mat-button [routerLink]="link.path" routerLinkActive="active" ariaCurrentWhenActive="page">
         {{ link.label }}
       </a>
@@ -10,6 +10,11 @@
   </nav>
 
   <span class="spacer"></span>
+
+  @if (auth.user(); as user) {
+    <span class="user">{{ user.employeeId }} · {{ user.role }}</span>
+  }
+  <button mat-button class="logout" (click)="logout()">Log out</button>
 
   <button
     mat-icon-button
@@ -20,9 +25,10 @@
     <mat-icon>menu</mat-icon>
   </button>
   <mat-menu #navMenu="matMenu">
-    @for (link of links; track link.path) {
+    @for (link of links(); track link.path) {
       <a mat-menu-item [routerLink]="link.path">{{ link.label }}</a>
     }
+    <button mat-menu-item (click)="logout()">Log out</button>
   </mat-menu>
 </mat-toolbar>
 
