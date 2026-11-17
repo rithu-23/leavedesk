@@ -22,8 +22,14 @@
   background: var(--mat-sys-secondary-container);
 }
 
-// Mobile first: links hidden, menu button shown.
-.links {
+.user {
+  font: var(--mat-sys-label-large);
+}
+
+// Mobile first: links, user and logout hidden (they are in the menu), menu button shown.
+.links,
+.user,
+.logout {
   display: none;
 }
 
@@ -31,6 +37,11 @@
   .links {
     display: flex;
     gap: 4px;
+  }
+
+  .user,
+  .logout {
+    display: inline-flex;
   }
 
   .menu-button {
