@@ -4,7 +4,7 @@
  */
 
 export type Role = 'employee' | 'manager';
-export type LeaveType = 'ANNUAL' | 'SICK';
+export type LeaveType = 'ANNUAL' | 'SICK' | 'CASUAL';
 export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 /** POST /auth/login response. */

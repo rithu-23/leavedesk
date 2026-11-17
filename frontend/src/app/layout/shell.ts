@@ -37,6 +37,7 @@ export class Shell {
 
   protected readonly links = computed<NavLink[]>(() => [
     { path: '/leave', label: 'My leave' },
+    { path: '/leave/apply', label: 'Apply' },
     ...(this.auth.isManager() ? [{ path: '/approvals', label: 'Approvals' }] : []),
   ]);
 

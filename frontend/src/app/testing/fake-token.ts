@@ -18,3 +18,8 @@ export const TEST_ROUTES = [
   { path: 'login', children: [] },
   { path: 'leave', children: [] },
 ];
+
+/** Signs a test in as this user by putting a token where AuthService looks on startup. */
+export function signInAs(sub: string, role: Role): void {
+  sessionStorage.setItem('leavedesk.token', fakeToken(sub, role));
+}

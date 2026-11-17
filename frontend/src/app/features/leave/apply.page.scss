@@ -1,0 +1,47 @@
+h1 {
+  font: var(--mat-sys-headline-small);
+  margin: 0 0 16px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+}
+
+// Mobile first: dates stacked; side by side from 600 px.
+.dates {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+@media (min-width: 600px) {
+  .dates {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.field-error,
+.server-error {
+  color: var(--mat-sys-error);
+  margin: 0;
+}
+
+.server-error {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.actions button {
+  min-width: 110px;
+}

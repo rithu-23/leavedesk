@@ -32,6 +32,9 @@
         @if (error(); as message) {
           <p class="error" role="alert">{{ message }}</p>
         }
+        @if (showLockoutHint()) {
+          <p class="hint">After 5 failed attempts, sign-in is paused for 15 minutes.</p>
+        }
 
         <button
           mat-flat-button

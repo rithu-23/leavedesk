@@ -1,0 +1,55 @@
+.header,
+.requests-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+h1 {
+  font: var(--mat-sys-headline-small);
+  margin: 0 0 16px;
+}
+
+h2 {
+  font: var(--mat-sys-title-large);
+  margin: 0;
+}
+
+.requests {
+  margin-top: 24px;
+}
+
+.filter {
+  width: 180px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+table {
+  width: 100%;
+}
+
+.tag {
+  margin-left: 6px;
+  font: var(--mat-sys-label-small);
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--mat-sys-surface-container-high);
+}
+
+.state {
+  padding: 24px 0;
+  text-align: center;
+}
+
+// Below 600 px the Reason column is hidden so the table fits a phone (UI-26).
+@media (max-width: 599px) {
+  .mat-column-reason {
+    display: none;
+  }
+}

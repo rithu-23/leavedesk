@@ -3,7 +3,13 @@
 
   <nav class="links" aria-label="Main">
     @for (link of links(); track link.path) {
-      <a mat-button [routerLink]="link.path" routerLinkActive="active" ariaCurrentWhenActive="page">
+      <a
+        mat-button
+        [routerLink]="link.path"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        ariaCurrentWhenActive="page"
+      >
         {{ link.label }}
       </a>
     }

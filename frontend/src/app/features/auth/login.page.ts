@@ -1,4 +1,4 @@
-import { Component, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -50,6 +50,14 @@ export class LoginPage {
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
 
+  /**
+   * Failed sign-ins in a row on this page. From the 3rd, a fixed hint explains the lockout
+   * rule. It is shown whatever the email, so it never reveals whether an account exists or
+   * is locked (UI-3, UI_SPEC.md v1.1).
+   */
+  private readonly failedAttempts = signal(0);
+  protected readonly showLockoutHint = computed(() => this.failedAttempts() >= 3);
+
   protected submit(): void {
     if (this.form.invalid || this.submitting()) {
       this.form.markAllAsTouched();
@@ -62,13 +70,19 @@ export class LoginPage {
     this.auth.login(email.trim(), password).subscribe({
       next: () => {
         this.submitting.set(false);
+        this.failedAttempts.set(0);
         void this.router.navigateByUrl(safeReturnUrl(this.returnUrl()));
       },
       error: (err: unknown) => {
         this.submitting.set(false);
         const apiError = toApiError(err);
         // One message for wrong password, unknown email and locked account (UI-3).
-        this.error.set(apiError.status === 401 ? 'Invalid email or password.' : apiError.message);
+        if (apiError.status === 401) {
+          this.failedAttempts.update((n) => n + 1);
+          this.error.set('Invalid email or password.');
+        } else {
+          this.error.set(apiError.message);
+        }
       },
     });
   }
