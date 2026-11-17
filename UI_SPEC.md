@@ -1,6 +1,6 @@
 # LeaveDesk — UI Specification (Capstone 4)
 
-**Version:** 1.0 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
+**Version:** 1.2 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
 
 This document describes the Angular web app that sits on top of the LeaveDesk API: its screens, what each screen shows in every state, and the acceptance criteria (Given/When/Then) that the tests check. It is written before any frontend code, in line with Spec-Driven Development.
 
@@ -95,10 +95,11 @@ All demo users use `DEMO_PASSWORD` from `.env`.
 - Request: `POST /api/auth/login` as `application/x-www-form-urlencoded` with `username` and `password`.
 - Success: the token is stored, the SSE stream opens, and the user goes to `returnUrl` if present, otherwise `/leave`.
 - Any 401 (wrong password, unknown email or locked account) shows one generic message: **"Invalid email or password."** The UI never says which part was wrong or that an account is locked.
+- After 3 failed attempts in a row on the page, a fixed hint appears: **"After 5 failed attempts, sign-in is paused for 15 minutes."** It is shown whatever email was typed, so it reveals nothing about any account.
 
 ### 5.2 My leave
 
-- **Balance card:** one row per leave type (ANNUAL, SICK) showing entitlement, used, pending and available, from `GET /api/employees/{sub}/balance`. Decimal strings from the API are converted to numbers once, in the API service. Derived values (for example the total available days and the "low balance" flag when available < 2) are `computed()` signals over the balance signal.
+- **Balance card:** one row per leave type, in the order Annual, Sick, Casual, showing entitlement, used, pending and available, from `GET /api/employees/{sub}/balance`. Decimal strings from the API are converted to numbers once, in the API service. Derived values (for example the total available days and the "low balance" flag when available < 2) are `computed()` signals over the balance signal.
 - **Requests table:** `GET /api/leave-requests?employee_id={sub}&status={filter}&sort=-start_date&limit={size}&offset={offset}`.
   - Columns: Dates (start–end, "½ day" tag when `half_day`), Type, Days, Status (coloured chip), Reason, Actions.
   - Status filter: All, Pending, Approved, Rejected, Cancelled. Changing the filter returns to page 1.
@@ -111,11 +112,11 @@ All demo users use `DEMO_PASSWORD` from `.env`.
 
 | Field | Control | Rules |
 |---|---|---|
-| Leave type | Select: Annual, Sick | Required |
-| Start date | Datepicker | Required |
-| End date | Datepicker | Required; must be on or after the start date |
+| Leave type | Select: Annual, Sick, Casual | Required |
+| Start date | Datepicker (MM/DD/YYYY) | Required |
+| End date | Datepicker (MM/DD/YYYY) | Required; must be on or after the start date |
 | Half day | Checkbox | Allowed only when start and end are the same day |
-| Reason | Textarea | Required, not only spaces |
+| Reason | Textarea | Required, not only spaces, at most 500 characters |
 
 - Cross-field errors (end before start, half day on a multi-day range) appear under the End date / Half day fields as soon as both values are present.
 - Dates are sent as `YYYY-MM-DD` in local time (no time-zone shift).
@@ -195,7 +196,7 @@ IDs are referenced by the tests (`UI-n`).
 
 - **UI-1 Login form validation.** Given the login page, when the email is empty or not an email, or the password is empty, then the field shows an error and Submit is disabled.
 - **UI-2 Successful login.** Given Ana's correct credentials, when she submits, then the token is stored, the toolbar shows her navigation without an Approvals link, and she lands on `/leave`.
-- **UI-3 Generic login error.** Given a wrong password (or a locked account), when the user submits, then "Invalid email or password." is shown and the user stays on `/login`.
+- **UI-3 Generic login error.** Given a wrong password (or a locked account), when the user submits, then "Invalid email or password." is shown and the user stays on `/login`. After 3 failures in a row, the fixed lockout hint is also shown.
 - **UI-4 Token on requests.** Given a signed-in user, when the app calls any `/api/` endpoint other than `/api/auth/login`, then the request carries `Authorization: Bearer {token}`.
 - **UI-5 Session end.** Given a signed-in user, when any API call (other than login) returns 401, then the user is signed out, the stream is closed, and the app shows `/login` with a `returnUrl`.
 - **UI-6 Guards.** Given a signed-out user, when they open `/leave`, then they are sent to `/login`. Given Ana (employee), when she opens `/approvals`, then she is sent to `/leave` and the approvals bundle is not loaded.
@@ -246,7 +247,7 @@ IDs are referenced by the tests (`UI-n`).
 
 | # | Test | Criteria |
 |---|---|---|
-| 1 | Login form: invalid input disables Submit; 401 shows the generic message | UI-1, UI-3 |
+| 1 | Login form: invalid input disables Submit; 401 shows the generic message; hint after 3 failures | UI-1, UI-3 |
 | 2 | Auth interceptor adds the Bearer header and signs out on 401 | UI-4, UI-5 |
 | 3 | `roleGuard('manager')` allows managers and redirects employees | UI-6 |
 | 4 | Date-range and half-day validators | UI-12, UI-13 |
@@ -291,3 +292,5 @@ Rules: features may import from `core/` and `shared/`, never from each other (th
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-11-17 | First UI spec for Capstone 4. Backend references corrected to PostgreSQL 17 (the Capstone 4 handoff said 16). |
+| 1.1 | 2026-11-17 | §5.1 and UI-3: fixed lockout hint after 3 failed sign-ins (found during manual testing: users got no hint about the 15-minute lock). §5.3: date format MM/DD/YYYY and a 500-character reason limit made explicit. |
+| 1.2 | 2026-11-17 | Leave types are ANNUAL, SICK and **CASUAL** (the Capstone 4 handoff listed only two; CASUAL exists since Capstone 1 and in the database). All labels come from one typed map; unknown codes are shown as-is. Found during manual testing: CASUAL rows were labelled "Sick". |

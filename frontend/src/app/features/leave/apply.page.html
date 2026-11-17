@@ -1,0 +1,68 @@
+<h1>Apply for leave</h1>
+
+<form [formGroup]="form" (ngSubmit)="submit()" novalidate class="form">
+  <mat-form-field appearance="outline">
+    <mat-label>Leave type</mat-label>
+    <mat-select formControlName="leaveType">
+      @for (type of leaveTypes; track type) {
+        <mat-option [value]="type">{{ type | leaveType }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  <div class="dates">
+    <mat-form-field appearance="outline">
+      <mat-label>Start date</mat-label>
+      <input matInput [matDatepicker]="startPicker" formControlName="startDate" />
+      <mat-hint>MM/DD/YYYY</mat-hint>
+      <mat-datepicker-toggle matIconSuffix [for]="startPicker" />
+      <mat-datepicker #startPicker />
+      @if (form.controls.startDate.hasError('required')) {
+        <mat-error>Start date is required</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>End date</mat-label>
+      <input matInput [matDatepicker]="endPicker" formControlName="endDate" />
+      <mat-hint>MM/DD/YYYY</mat-hint>
+      <mat-datepicker-toggle matIconSuffix [for]="endPicker" />
+      <mat-datepicker #endPicker />
+      @if (form.controls.endDate.hasError('required')) {
+        <mat-error>End date is required</mat-error>
+      }
+    </mat-form-field>
+  </div>
+
+  @if (form.hasError('endBeforeStart')) {
+    <p class="field-error" role="alert">End date must be on or after the start date</p>
+  }
+
+  <mat-checkbox formControlName="halfDay">Half day</mat-checkbox>
+  @if (form.hasError('halfDayMultiDay')) {
+    <p class="field-error" role="alert">Half day is only allowed for a single day</p>
+  }
+
+  <mat-form-field appearance="outline">
+    <mat-label>Reason</mat-label>
+    <textarea matInput formControlName="reason" rows="3" maxlength="500"></textarea>
+    @if (form.controls.reason.hasError('required') || form.controls.reason.hasError('blank')) {
+      <mat-error>Reason is required</mat-error>
+    }
+  </mat-form-field>
+
+  @if (serverError(); as message) {
+    <p class="server-error" role="alert">{{ message }}</p>
+  }
+
+  <div class="actions">
+    <a mat-button routerLink="/leave">Back</a>
+    <button mat-flat-button type="submit" [disabled]="form.invalid || submitting()">
+      @if (submitting()) {
+        <mat-spinner diameter="20" aria-label="Submitting" />
+      } @else {
+        Submit
+      }
+    </button>
+  </div>
+</form>

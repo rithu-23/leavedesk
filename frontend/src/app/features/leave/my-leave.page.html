@@ -1,0 +1,91 @@
+<div class="header">
+  <h1>My leave</h1>
+  <a mat-flat-button routerLink="/leave/apply">Apply for leave</a>
+</div>
+
+<app-balance-card />
+
+<section class="requests" aria-labelledby="requests-heading">
+  <div class="requests-header">
+    <h2 id="requests-heading">Requests</h2>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
+      <mat-label>Status</mat-label>
+      <mat-select [value]="store.query().status" (selectionChange)="onStatusChange($event.value)">
+        @for (s of statuses; track s.value) {
+          <mat-option [value]="s.value">{{ s.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  @if (store.loading()) {
+    <mat-progress-bar mode="indeterminate" aria-label="Loading requests" />
+  }
+
+  @if (store.status() === 'error') {
+    <div class="state" role="alert">
+      <p>{{ store.error()?.message }}</p>
+      <button mat-stroked-button (click)="store.loadRequests()">Retry</button>
+    </div>
+  } @else if (store.isEmpty()) {
+    <p class="state">{{ emptyMessage() }}</p>
+  } @else {
+    <div class="table-wrap">
+      <table mat-table [dataSource]="store.requests()" aria-labelledby="requests-heading">
+        <ng-container matColumnDef="dates">
+          <th mat-header-cell *matHeaderCellDef>Dates</th>
+          <td mat-cell *matCellDef="let r">
+            {{ r.start_date | date: 'd MMM y' }}
+            @if (r.end_date !== r.start_date) {
+              – {{ r.end_date | date: 'd MMM y' }}
+            }
+            @if (r.half_day) {
+              <span class="tag">½ day</span>
+            }
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="type">
+          <th mat-header-cell *matHeaderCellDef>Type</th>
+          <td mat-cell *matCellDef="let r">{{ r.leave_type | leaveType }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="days">
+          <th mat-header-cell *matHeaderCellDef>Days</th>
+          <td mat-cell *matCellDef="let r">{{ r.days | number: '1.0-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let r"><app-status-chip [status]="r.status" /></td>
+        </ng-container>
+
+        <ng-container matColumnDef="reason">
+          <th mat-header-cell *matHeaderCellDef>Reason</th>
+          <td mat-cell *matCellDef="let r">{{ r.reason }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef><span class="visually-hidden">Actions</span></th>
+          <td mat-cell *matCellDef="let r">
+            @if (r.status === 'pending') {
+              <button mat-button (click)="confirmCancel(r)">Cancel</button>
+            }
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="columns"></tr>
+        <tr mat-row *matRowDef="let row; columns: columns"></tr>
+      </table>
+    </div>
+  }
+
+  <mat-paginator
+    [length]="store.total()"
+    [pageIndex]="store.query().pageIndex"
+    [pageSize]="store.query().pageSize"
+    [pageSizeOptions]="[5, 10, 20]"
+    (page)="onPage($event)"
+    aria-label="Select page of requests"
+  />
+</section>

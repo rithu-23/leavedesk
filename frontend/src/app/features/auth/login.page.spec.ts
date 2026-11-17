@@ -50,6 +50,28 @@ describe('LoginPage', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Invalid email or password.');
   });
 
+  it('shows the lockout rule after 3 failed attempts in a row (UI-3)', async () => {
+    const { user, http } = await renderLogin();
+    await user.type(screen.getByLabelText('Email'), 'ana@leavedesk.test');
+    await user.type(screen.getByLabelText('Password'), 'wrong');
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      expect(screen.queryByText(/sign-in is paused for 15 minutes/)).toBeNull();
+      // Wait for the button to show "Sign in" again after the previous attempt.
+      await user.click(await screen.findByRole('button', { name: 'Sign in' }));
+      http
+        .expectOne('/api/auth/login')
+        .flush(
+          { error: { code: 'UNAUTHENTICATED', message: 'Invalid credentials' } },
+          { status: 401, statusText: 'Unauthorized' },
+        );
+    }
+
+    expect(
+      await screen.findByText('After 5 failed attempts, sign-in is paused for 15 minutes.'),
+    ).toBeTruthy();
+  });
+
   it('goes to /leave after a successful sign-in (UI-2)', async () => {
     const { user, http, submit } = await renderLogin();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);

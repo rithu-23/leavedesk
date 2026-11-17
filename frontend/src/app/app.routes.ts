@@ -29,6 +29,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/leave/my-leave.page').then((m) => m.MyLeavePage),
       },
       {
+        path: 'leave/apply',
+        title: 'Apply for leave · LeaveDesk',
+        loadComponent: () => import('./features/leave/apply.page').then((m) => m.ApplyPage),
+      },
+      {
         path: 'approvals',
         canMatch: [roleGuard('manager')],
         loadChildren: () =>
