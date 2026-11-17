@@ -1,0 +1,39 @@
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  gap: 8px;
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.brand {
+  font: var(--mat-sys-title-large);
+  color: inherit;
+  text-decoration: none;
+  margin-right: 16px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.active {
+  background: var(--mat-sys-secondary-container);
+}
+
+// Mobile first: links hidden, menu button shown.
+.links {
+  display: none;
+}
+
+@media (min-width: 600px) {
+  .links {
+    display: flex;
+    gap: 4px;
+  }
+
+  .menu-button {
+    display: none;
+  }
+}

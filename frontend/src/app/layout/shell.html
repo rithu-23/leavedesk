@@ -1,0 +1,31 @@
+<mat-toolbar class="toolbar">
+  <a class="brand" routerLink="/leave">LeaveDesk</a>
+
+  <nav class="links" aria-label="Main">
+    @for (link of links; track link.path) {
+      <a mat-button [routerLink]="link.path" routerLinkActive="active" ariaCurrentWhenActive="page">
+        {{ link.label }}
+      </a>
+    }
+  </nav>
+
+  <span class="spacer"></span>
+
+  <button
+    mat-icon-button
+    class="menu-button"
+    [matMenuTriggerFor]="navMenu"
+    aria-label="Open navigation menu"
+  >
+    <mat-icon>menu</mat-icon>
+  </button>
+  <mat-menu #navMenu="matMenu">
+    @for (link of links; track link.path) {
+      <a mat-menu-item [routerLink]="link.path">{{ link.label }}</a>
+    }
+  </mat-menu>
+</mat-toolbar>
+
+<main class="page">
+  <router-outlet />
+</main>
