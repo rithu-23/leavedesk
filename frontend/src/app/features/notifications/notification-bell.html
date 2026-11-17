@@ -1,0 +1,49 @@
+<button
+  mat-icon-button
+  [matMenuTriggerFor]="panel"
+  (menuOpened)="onOpened()"
+  [attr.aria-label]="'Notifications, ' + store.unreadCount() + ' unread'"
+>
+  <mat-icon
+    [matBadge]="store.unreadCount()"
+    [matBadgeHidden]="store.unreadCount() === 0"
+    matBadgeColor="warn"
+    matBadgeSize="small"
+    aria-hidden="true"
+    >notifications</mat-icon
+  >
+</button>
+<span class="visually-hidden" aria-live="polite">
+  {{ store.unreadCount() }} unread notifications
+</span>
+
+<mat-menu #panel="matMenu" xPosition="before" class="notification-panel">
+  <div class="panel">
+    <h2 class="title">Notifications</h2>
+    @switch (store.status()) {
+      @case ('loading') {
+        <div class="state"><mat-spinner diameter="24" aria-label="Loading notifications" /></div>
+      }
+      @case ('error') {
+        <div class="state" role="alert">
+          <p>Couldn't load notifications</p>
+          <button mat-stroked-button (click)="store.load()">Retry</button>
+        </div>
+      }
+      @default {
+        @if (store.items().length === 0) {
+          <p class="state">No notifications</p>
+        } @else {
+          <ul class="list">
+            @for (n of store.items(); track n.id) {
+              <li [class.unread]="!n.read">
+                <span class="message">{{ n.message }}</span>
+                <span class="time">{{ n.created_at | date: 'd MMM, HH:mm' }}</span>
+              </li>
+            }
+          </ul>
+        }
+      }
+    }
+  </div>
+</mat-menu>

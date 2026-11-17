@@ -1,20 +1,25 @@
 import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { render, screen } from '@testing-library/angular';
 
+import { FakeEventSource } from '../testing/fake-event-source';
 import { fakeToken, TEST_ROUTES } from '../testing/fake-token';
 import { Shell } from './shell';
 
 async function renderShellAs(role: 'employee' | 'manager') {
+  vi.stubGlobal('EventSource', FakeEventSource);
   sessionStorage.setItem('leavedesk.token', fakeToken(role === 'manager' ? 'E-MO' : 'E-ANA', role));
   const result = await render(Shell, {
-    providers: [provideRouter(TEST_ROUTES), provideHttpClient()],
+    providers: [provideRouter(TEST_ROUTES), provideHttpClient(), provideHttpClientTesting()],
   });
   sessionStorage.clear();
   return result;
 }
 
 describe('Shell', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it('shows the brand, the menu button and an employee without Approvals (UI-2)', async () => {
     const { container } = await renderShellAs('employee');
 
