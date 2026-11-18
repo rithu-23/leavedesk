@@ -5,6 +5,7 @@ import {
   provideRouter,
   Route,
   RouterStateSnapshot,
+  UrlSegment,
   UrlTree,
 } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
@@ -12,10 +13,10 @@ import { provideHttpClient } from '@angular/common/http';
 import { fakeToken, TEST_ROUTES } from '../../testing/fake-token';
 import { authGuard, roleGuard } from './auth.guards';
 
-/** Calls the CanMatch guard the way the router would (the arguments aren't used). */
+/** Calls the CanMatch guard the way the router would, for the URL /approvals. */
 function matchManager(): ReturnType<CanMatchFn> {
   const guard = roleGuard('manager') as (...args: unknown[]) => ReturnType<CanMatchFn>;
-  return guard({} as Route, [], {});
+  return guard({} as Route, [new UrlSegment('approvals', {})], {});
 }
 
 function configure(token?: string): void {
@@ -39,6 +40,12 @@ describe('route guards (UI-6)', () => {
     configure(fakeToken('E-ANA', 'employee'));
     const result = TestBed.runInInjectionContext(() => matchManager());
     expect(result instanceof UrlTree && result.toString()).toBe('/leave');
+  });
+
+  it('roleGuard("manager") sends a signed-out visitor to /login, back to /approvals afterwards', () => {
+    configure();
+    const result = TestBed.runInInjectionContext(() => matchManager());
+    expect(result instanceof UrlTree && result.toString()).toBe('/login?returnUrl=%2Fapprovals');
   });
 
   it('authGuard sends a signed-out user to /login with a returnUrl', () => {

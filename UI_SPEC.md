@@ -1,6 +1,6 @@
 # LeaveDesk — UI Specification (Capstone 4)
 
-**Version:** 1.6 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
+**Version:** 1.7 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
 
 This document describes the Angular web app that sits on top of the LeaveDesk API: its screens, what each screen shows in every state, and the acceptance criteria (Given/When/Then) that the tests check. It is written before any frontend code, in line with Spec-Driven Development.
 
@@ -204,7 +204,7 @@ IDs are referenced by the tests (`UI-n`).
 - **UI-3 Generic login error.** Given a wrong password (or a locked account), when the user submits, then "Invalid email or password." is shown and the user stays on `/login`. After 3 failures in a row, the fixed lockout hint is also shown.
 - **UI-4 Token on requests.** Given a signed-in user, when the app calls any `/api/` endpoint other than `/api/auth/login`, then the request carries `Authorization: Bearer {token}`.
 - **UI-5 Session end.** Given a signed-in user, when any API call (other than login) returns 401, then the user is signed out, the stream is closed, and the app shows `/login` with a `returnUrl`.
-- **UI-6 Guards.** Given a signed-out user, when they open `/leave`, then they are sent to `/login`. Given Ana (employee), when she opens `/approvals`, then she is sent to `/leave` and the approvals bundle is not loaded.
+- **UI-6 Guards.** Given a signed-out user, when they open `/leave` or `/approvals`, then they are sent to `/login` with that page as `returnUrl`. Given Ana (employee), when she opens `/approvals`, then she is sent to `/leave` and the approvals bundle is not loaded.
 - **UI-7 Logout.** Given a signed-in user, when they press Log out, then the token is removed, the stream is closed, stores are cleared and `/login` is shown.
 
 ### My leave
@@ -261,13 +261,20 @@ IDs are referenced by the tests (`UI-n`).
 | 7 | Approvals: optimistic removal and rollback on error | UI-18, UI-20 |
 | 8 | Notification store `unreadCount` and the bell's badge and accessible name | UI-21 |
 
-**End-to-end test (Playwright), against `docker compose up` on `http://localhost:8080`:**
+**End-to-end tests (Playwright), against `docker compose up` on `http://localhost:8080`** (`frontend/e2e/`, run with `npm run e2e`):
 
-1. Reset to fresh demo data first (`docker compose down -v && docker compose up -d --build`), because every approved run uses up Ana's balance.
-2. Ana signs in and notes her ANNUAL `used` and `available` values.
-3. Ana applies for a single working day of annual leave in a future week; `available` drops by 1 (UI-14).
-4. In a second browser context, Mo signs in, opens Approvals and approves Ana's request (UI-17, UI-18).
-5. Back in Ana's context, without reloading: a snackbar shows the approval, the bell count rises (UI-22), and ANNUAL `used` has increased by 1.
+`leave-flow.spec.ts`, the "Done when" test:
+1. Ana signs in in one browser context and notes her ANNUAL `used` and `available` values. If nothing is available, the test fails with the reset command (`docker compose down -v && docker compose up -d --build --wait`).
+2. Ana applies for one day of annual leave on a Monday in a random week of 2030–2034, with a unique reason, so repeated runs never overlap. The row is pending and `available` drops by 1 (UI-14).
+3. In a second browser context, Mo signs in, opens Approvals and approves that row through the confirm dialog (UI-17, UI-18).
+4. Back in Ana's context, without reloading: the "…was approved" snackbar appears, the bell shows at least 1 unread, ANNUAL `used` has increased by 1, and the row shows approved (UI-22).
+5. Opening the bell lists the approval and the count goes to 0 (UI-23).
+
+The same file also checks UI-28: `/api/health` answers through nginx, and a signed-out visit to `/approvals` goes to `/login?returnUrl=%2Fapprovals`.
+
+`accessibility.spec.ts`: axe-core (WCAG 2.1 A and AA) on login, My leave, Apply, Approvals and the notification panel, at 1280 px and 375 px, plus "no sideways page scroll" (UI-26, UI-27).
+
+The demo password comes from `DEMO_PASSWORD` or the repository's `.env`; it is never in the test code.
 
 **Done when:** this Playwright test passes against the Docker Compose stack (database, migrate, API, worker and web).
 
@@ -303,3 +310,4 @@ Rules: features may import from `core/` and `shared/`, never from each other (th
 | 1.4 | 2026-11-17 | §5.5: event names from the backend (`submitted`, `approved`, `rejected`, `cancelled`); unread count is over the 20 most recent; the stream reconnects after 10 s if the browser gives up. Verified end to end in a real browser against the API. |
 | 1.5 | 2026-11-17 | Step 7 (layout and accessibility): reason is 10–500 characters after trimming, as in SPEC.md (§5.3); 422 field errors shown under their fields; notification panel is an anchored `role="dialog"` popup instead of a menu (axe: a menu must contain menu items); bell label "Notifications {n} unread"; skip link; axe-core result recorded (§8). |
 | 1.6 | 2026-11-17 | Step 8 (Docker): `web` service (Node build, nginx serve) on port 8080; §3 records SSE settings, no token in access logs, SPA fallback, caching, and no font inlining at build time. Initial bundle warning budget raised to 700 kB raw (137 kB transferred with gzip). |
+| 1.7 | 2026-11-17 | Step 9 (Playwright): §11 describes the E2E and accessibility tests as built (random future Monday instead of resetting data before every run; password from `.env`). UI-6: a signed-out visit to `/approvals` now returns there after sign-in (the E2E test found it went to `/leave`). |
