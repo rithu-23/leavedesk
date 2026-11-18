@@ -1,59 +1,38 @@
-# LeavedeskWeb
+# LeaveDesk web app
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.2.7.
+The Angular front end of LeaveDesk (Capstone 4). The full setup, Docker instructions and the
+command table are in the repository's main [README](../README.md); the screens and acceptance
+criteria are in [UI_SPEC.md](../UI_SPEC.md).
 
-## Development server
+## Stack
 
-To start a local development server, run:
+Angular 22 (standalone components, zoneless, signals, built-in control flow), Angular Material and
+CDK, Reactive Forms, RxJS at the edges (HttpClient, Server-Sent Events), Vitest with Angular Testing
+Library, Playwright with axe-core, ESLint and Prettier.
 
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## Everyday commands
 
 ```bash
-ng generate component component-name
+npm install
+npm start            # http://localhost:4200, API expected on http://localhost:8000
+npm test             # unit tests
+npm run lint
+npm run format:check
+npm run e2e          # end-to-end tests; needs docker compose up -d --build --wait
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+## Structure
 
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+| Folder                            | What it holds                                                   |
+| --------------------------------- | --------------------------------------------------------------- |
+| `src/app/core/`                   | API types, error helper, `AuthService`, JWT interceptor, guards |
+| `src/app/layout/`                 | The toolbar shell (navigation, bell, log out)                   |
+| `src/app/shared/`                 | Confirm dialog, status chip, leave-type labels                  |
+| `src/app/features/auth/`          | Login page                                                      |
+| `src/app/features/leave/`         | `LeaveStore`, My leave, Apply, balance card                     |
+| `src/app/features/approvals/`     | Lazy, manager-only approvals with optimistic updates            |
+| `src/app/features/notifications/` | Bell, notifications store, SSE wrapper                          |
+| `src/app/testing/`                | Test helpers (fake JWT, fake EventSource)                       |
+| `e2e/`                            | Playwright end-to-end and accessibility tests                   |
+| `proxy.conf.json`                 | Dev server: `/api` → `localhost:8000`                           |
+| `Dockerfile`, `nginx.conf`        | Docker image: build with Node, serve with nginx, forward `/api` |

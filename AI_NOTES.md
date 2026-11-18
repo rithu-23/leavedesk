@@ -359,3 +359,160 @@
 2. **Order must be total for a cursor to work:** sorting by `start_date` alone gives ties (many requests share a date), so a cursor could skip or repeat rows at a page boundary. Both repositories order by `(start_date, tie-breaker)`: the internal id in PostgreSQL, insertion order in memory. Each storage encodes its own tie-breaker in the opaque cursor.
 3. **Still to improve:** the endpoint works out a manager's reports by loading the employee list. Fine for the demo data, but with 20,000 employees it should become a single `WHERE manager_id = ...` query.
 4. **A flaky test found on the real machine (DB-7):** on the Mac, one full PostgreSQL run failed DB-7 because the second submit was cancelled with a deadlock error (40P01, after the 1-second `deadlock_timeout`) instead of the EXCLUDE violation (23P01). That is real PostgreSQL behaviour: two conflicting inserts under an exclusion constraint can each wait for the other. Both outcomes mean the database stopped the second request (the API turns 40P01 into a retry-safe 503), so the test now accepts either, while still checking that exactly one request was saved.
+
+
+---
+
+## Entry 19 — UI_SPEC.md (Capstone 4, step 1)
+
+**Prompt:** Before any code, write UI_SPEC.md for the Angular app: screens, loading/empty/error states, Given/When/Then acceptance criteria, how the browser reaches the API, security decisions and the test plan.
+
+**Generated:** UI_SPEC.md v1.0: 5 screens, states table, error handling, 28 acceptance criteria (UI-1 to UI-28), a test plan (8 unit tests, 1 Playwright flow) and the frontend folder structure.
+
+**Checked / changed:**
+- Compared the endpoints and error codes with the Capstone 4 handoff and `docker compose ps`.
+- The spec was updated seven times while building (v1.1 to v1.7); each change log row says what changed and what found it.
+
+**Issues caught:**
+1. **Wrong database version:** the handoff said PostgreSQL 16; `docker compose ps` shows `postgres:17`. Corrected in v1.0.
+2. **The spec trusted a summary instead of the code.** Several later fixes (entries 22, 23 and 25) came from this: the handoff listed two leave types, a 409 for insufficient balance and no reason length. Lesson: write the UI spec from SPEC.md, API_SPEC.md and the code, not from a hand-written summary.
+
+
+---
+
+## Entry 20 — Angular project setup (Capstone 4, step 2)
+
+**Prompt:** Create an Angular app in `frontend/` with standalone components, zoneless change detection, Vitest, Angular Material, ESLint and Prettier, a toolbar shell and a dev proxy for `/api`.
+
+**Generated:** The `ng new` / `ng add` commands, `proxy.conf.json`, the shell component, a placeholder page that calls `/api/health`, and 4 tests.
+
+**Checked / changed:**
+- `npm test`, `npm run lint`, `npm run format:check`; the page showed "API: ok", proving the proxy reached FastAPI.
+- `git status` showed `node_modules` was not committed (`grep -c node_modules` printed 0).
+
+**Issues caught:**
+1. **Test couldn't see a CSS-hidden element:** the toolbar test looked for the link bar through the accessibility tree, but CSS hides it below 600 px and the test environment has no real screen width. The test now checks the DOM.
+2. **`ng new` output didn't match Prettier:** `format:check` flagged three generated files. Fixed with `npm run format` at the start of step 3.
+3. **`ng` not found after a global install:** npm installs global tools in `~/.npm-global/bin`, which wasn't on my PATH. Added it in `~/.zshrc`.
+
+
+---
+
+## Entry 21 — Login, JWT interceptor and guards (Capstone 4, step 3)
+
+**Prompt:** Login page with a reactive form; store the JWT; an interceptor that adds the token and signs out on 401; auth, guest and role guards; one generic login error.
+
+**Generated:** `AuthService` (token in a signal plus sessionStorage, JWT claims decoded, sign-out at expiry), `authInterceptor`, the three guards, the login page and 16 tests.
+
+**Checked / changed:**
+- In the browser: wrong password shows "Invalid email or password."; Ana sees no Approvals link and `/approvals` sends her to `/leave`; Mo sees the link.
+- Only `/api/` URLs get the token, so it can't leak to another site; `returnUrl` must start with a single `/` (no open redirect).
+
+**Issues caught:**
+1. **Passwords with "+" would have failed:** the first version built the login form with Angular's `HttpParams`, which leaves `+` unencoded; a form decoder reads `+` as a space. A test with the password `a+b&c` caught it; switched to `URLSearchParams`.
+
+
+---
+
+## Entry 22 — Leave store, My leave and Apply (Capstone 4, step 4)
+
+**Prompt:** A feature signal store for leave requests with loading/error/success, a Material table with status filter and pagination, a balance card driven by `computed()`, and an Apply form with date-range validation and the server's 409 shown inline.
+
+**Generated:** `LeaveApi`, `LeaveStore`, the balance card, My leave and Apply pages, the confirm dialog, the status chip and 16 tests.
+
+**Checked / changed:**
+- Applied, cancelled and filtered in the browser; compared the balance card with the database in pgAdmin.
+
+**Issues caught (two found by my own manual testing):**
+1. **CASUAL leave was labelled "Sick"** (my catch, comparing the UI with pgAdmin). The code assumed two leave types (from the handoff) and wrote "Annual if ANNUAL, otherwise Sick". Fixed with one typed label map (`Record<LeaveType, string>`, so a missing label is a compile error) and tests using the real data. This is the AI mistake I present in the demo.
+2. **No hint about the 15-minute lockout** (my catch). The API correctly returns the same 401 for a wrong password and a locked account, so the UI can't say "locked" without revealing that the account exists. Added a fixed hint after 3 failures that is shown whatever the email; UI_SPEC v1.1.
+3. **Date format trap:** Material's datepicker follows the browser language, so on an English (India) Mac it would show DD/MM/YYYY while typed dates were read as MM/DD/YYYY. Fixed the format to MM/DD/YYYY to match the hint.
+4. **Instructions problem:** the first fix archive was unpacked from inside `frontend/`, creating `frontend/frontend/...`, so the fix never reached the app. Found by checking the files on disk; all later commands start with `cd ~/Projects/leavedesk` and use `&&` so they stop at the first error.
+
+
+---
+
+## Entry 23 — Manager approvals (Capstone 4, step 5)
+
+**Prompt:** A lazy-loaded, manager-only approvals route; approve or reject through a confirm dialog; optimistic update that rolls back on error.
+
+**Generated:** `ApprovalsApi` and `ApprovalsStore` (provided by the route, so they stay in the lazy bundle), the page, the reject dialog and 7 tests.
+
+**Checked / changed:**
+- Read `leavedesk/api/routes/leave.py` and `errors.py` before writing the screen.
+- In the browser: Mo approves Ana's request; Ana's balance shows it as used.
+
+**Issues caught:**
+1. **The pending list includes the manager's own requests** (`visible = {me.id} | reports` in the route) and the API refuses self-approval (BR-6). The screen now leaves them out.
+2. **INSUFFICIENT_BALANCE is 422, not 409** as the handoff said. UI_SPEC v1.3.
+3. **A dialog test broke Testing Library's typing helper:** it re-runs change detection inside each key event, which clashes with an open Material dialog (NG0101), and typing stopped after two letters. The test types with a plain DOM `input` event.
+4. **Git slip:** `git switch -c` failed because the branch existed, so the commit landed on local `main`. Recovered with `git branch -f feature/approvals <commit>` and `git branch -f main origin/main`; nothing reached the protected `main`.
+
+
+---
+
+## Entry 24 — Notification bell and live updates (Capstone 4, step 6)
+
+**Prompt:** A bell with an unread count as a `computed()` signal over a notifications store; open the SSE stream after login and close it on logout; snackbar for new notifications; the panel marks them read.
+
+**Generated:** `fromEventSource` (EventSource wrapped in an Observable), `NotificationsApi`, `NotificationsStore`, the bell, a fake EventSource for tests, and 11 tests.
+
+**Checked / changed:**
+- Read `stream.py` and `models.py` for the event names and message format.
+- Two windows (Ana and Mo in Incognito): Mo approves and Ana's toast, bell and balance update without a refresh.
+
+**Issues caught:**
+1. **Icons appeared as words** ("menu", "notifications"): `ng add` loads the Material Symbols font, but `<mat-icon>` asks for the older Material Icons font by default. Found from a 375 px screenshot (the word made the page 406 px wide); fixed with `MatIconRegistry.setDefaultFontSetClass('material-symbols-outlined')`.
+
+
+---
+
+## Entry 25 — Accessibility and phone layout (Capstone 4, step 7)
+
+**Prompt:** Make every screen usable at 375 px and with the keyboard, with labelled controls and loading/empty/error states, and check it.
+
+**Generated:** axe-core audits (WCAG 2.1 A/AA) of every screen, dialog and panel at 1280 and 375 px, a keyboard-only run, and the fixes below.
+
+**Checked / changed:**
+- After the fixes: 0 axe violations, every page exactly 375 px wide, sign in / apply / bell all work with the keyboard only.
+
+**Issues caught:**
+1. **Critical: the notification panel was a Material menu,** which screen readers announce as a list of commands. Rebuilt as an anchored `role="dialog"` popup with a focus trap; Escape returns focus to the bell.
+2. **The 10–500 character reason rule was missing from the form,** and a 422 only showed "The request is invalid." Found when a short reason was rejected in the browser. The form now enforces it, and 422 field errors appear under their fields.
+3. **False alarm:** colour-contrast warnings on dialogs disappeared once the audit waited for the open animation. Measure after the screen has settled.
+
+
+---
+
+## Entry 26 — Web app in Docker (Capstone 4, step 8)
+
+**Prompt:** Add the Angular app to docker compose so `docker compose up` runs the database, API, worker and web app, with `/api` and the SSE stream forwarded by nginx.
+
+**Generated:** `frontend/Dockerfile` (Node build, nginx serve), `frontend/nginx.conf`, the `web` service, `.dockerignore` changes.
+
+**Checked / changed:**
+- The exact `nginx.conf` was tested with the production build: deep links, `/api/health`, security and cache headers, gzip, and the full employee-to-manager flow with the live stream through nginx; no URL containing the token in the access log.
+
+**Issues caught:**
+1. **The root `.dockerignore` didn't exclude `frontend/`,** so every API image build would have uploaded `frontend/node_modules` (hundreds of MB).
+2. **The production build needed Google Fonts at build time** (font inlining); it failed without internet. Turned off, so image builds don't depend on fonts.googleapis.com.
+3. **Bundle budget warning:** 562 kB raw. Measured 137 kB actually transferred with gzip before raising the warning level to 700 kB (the 1 MB error limit is unchanged).
+4. **Found on my Mac, not in the generated code's test environment:** `docker compose up --wait` failed with "worker is unhealthy". The worker reuses the API image and so inherited its `HEALTHCHECK` (GET `:8000/health`), but it runs no web server, so it had been "unhealthy" since Capstone 3 without anyone noticing. Fixed with `healthcheck: disable: true` on the worker in `docker-compose.yml`; the live notification in the browser then confirmed the worker really sends notifications.
+
+
+---
+
+## Entry 27 — Playwright end-to-end tests (Capstone 4, step 9)
+
+**Prompt:** One Playwright test against docker compose: the employee applies, the manager approves, the employee sees the approval notification and the balance change. Also an automated accessibility check.
+
+**Generated:** `playwright.config.ts`, `e2e/support.ts` (password read from `.env`, random future Monday), `e2e/leave-flow.spec.ts`, `e2e/accessibility.spec.ts`.
+
+**Checked / changed:**
+- 6/6 passing, three runs in a row; `npm run e2e` against `docker compose up -d --build --wait` on my Mac.
+
+**Issues caught:**
+1. **Routing bug found only by the end-to-end test:** a signed-out visit to `/approvals` went to `/login?returnUrl=/leave`, because the manager-only `canMatch` guard runs before the parent's `canActivate` sign-in guard and sent everyone who wasn't a manager to `/leave`. It now sends signed-out visitors to login with the right return page (new unit test).
+2. **Unreliable accessibility test:** axe sometimes ran before the icon font loaded and read icon names as text. The test now waits for `document.fonts.ready`.
+3. **Test data that never collides:** each run uses a unique reason and a random Monday in 2030–2034, so runs don't overlap; it fails with the reset command if Ana's annual leave runs out.
+
