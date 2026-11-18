@@ -10,3 +10,5 @@ tests
 .vscode
 .idea
 .DS_Store
+# The Angular app has its own image (frontend/Dockerfile); its node_modules are huge.
+frontend

@@ -1,6 +1,6 @@
 # LeaveDesk — UI Specification (Capstone 4)
 
-**Version:** 1.5 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
+**Version:** 1.6 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
 
 This document describes the Angular web app that sits on top of the LeaveDesk API: its screens, what each screen shows in every state, and the acceptance criteria (Given/When/Then) that the tests check. It is written before any frontend code, in line with Spec-Driven Development.
 
@@ -55,7 +55,9 @@ Consequences:
 
 - The Angular code always calls relative URLs such as `/api/leave-requests`. No environment-specific base URL.
 - The API needs no CORS middleware; the backend and its 175 tests are unchanged.
-- nginx disables response buffering on `/api/notifications/stream` so Server-Sent Events arrive immediately.
+- nginx disables response buffering on `/api/notifications/stream` so Server-Sent Events arrive immediately, keeps that connection open for up to an hour, and does not write its URL (which holds the token) to the access log.
+- nginx serves `index.html` for unknown paths, so deep links and page refreshes on `/leave` or `/approvals` work; hashed build files are cached for a year and `index.html` never.
+- The production build does not inline Google Fonts, so building the image needs no access to fonts.googleapis.com (the browser still loads the fonts at run time).
 
 ## 4. Users and roles
 
@@ -300,3 +302,4 @@ Rules: features may import from `core/` and `shared/`, never from each other (th
 | 1.3 | 2026-11-17 | Checked against the backend code: §5.4 and UI-17, the pending list also contains the manager's own requests, so the screen filters them out (self-approval is refused by the API) and loads up to 100 without a paginator; INSUFFICIENT_BALANCE is 422, not 409 (§5.3, UI-16); 409 codes named (§5.4). |
 | 1.4 | 2026-11-17 | §5.5: event names from the backend (`submitted`, `approved`, `rejected`, `cancelled`); unread count is over the 20 most recent; the stream reconnects after 10 s if the browser gives up. Verified end to end in a real browser against the API. |
 | 1.5 | 2026-11-17 | Step 7 (layout and accessibility): reason is 10–500 characters after trimming, as in SPEC.md (§5.3); 422 field errors shown under their fields; notification panel is an anchored `role="dialog"` popup instead of a menu (axe: a menu must contain menu items); bell label "Notifications {n} unread"; skip link; axe-core result recorded (§8). |
+| 1.6 | 2026-11-17 | Step 8 (Docker): `web` service (Node build, nginx serve) on port 8080; §3 records SSE settings, no token in access logs, SPA fallback, caching, and no font inlining at build time. Initial bundle warning budget raised to 700 kB raw (137 kB transferred with gzip). |

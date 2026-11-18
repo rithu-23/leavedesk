@@ -1,4 +1,4 @@
-# docker compose up --build    then open http://localhost:8000/docs
+# docker compose up -d --build --wait    then open http://localhost:8080 (app) or http://localhost:8000/docs (API)
 # First run after this change (or to re-run the role script): docker compose down -v
 services:
   db:
@@ -56,6 +56,21 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # The worker reuses the API image but runs no web server, so the image's HEALTHCHECK
+    # (GET http://127.0.0.1:8000/health) can never pass here. Without this, the worker is always
+    # "unhealthy" and `docker compose up --wait` fails.
+    healthcheck:
+      disable: true
+
+  web:
+    # Capstone 4: the Angular app, built with Node and served by nginx (frontend/Dockerfile).
+    # nginx also forwards /api/... to the api service, so the browser talks to one address.
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy   # api's Dockerfile HEALTHCHECK calls /health
 
 volumes:
   pgdata:
