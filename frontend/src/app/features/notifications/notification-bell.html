@@ -1,25 +1,45 @@
 <button
+  #bell
   mat-icon-button
-  [matMenuTriggerFor]="panel"
-  (menuOpened)="onOpened()"
-  [attr.aria-label]="'Notifications, ' + store.unreadCount() + ' unread'"
+  cdkOverlayOrigin
+  #origin="cdkOverlayOrigin"
+  (click)="toggle()"
+  aria-haspopup="dialog"
+  [attr.aria-expanded]="open()"
+  [attr.aria-label]="'Notifications ' + store.unreadCount() + ' unread'"
+  [matBadge]="store.unreadCount()"
+  [matBadgeHidden]="store.unreadCount() === 0"
+  matBadgeColor="warn"
+  matBadgeSize="small"
+  matBadgeDescription=""
 >
-  <mat-icon
-    [matBadge]="store.unreadCount()"
-    [matBadgeHidden]="store.unreadCount() === 0"
-    matBadgeColor="warn"
-    matBadgeSize="small"
-    aria-hidden="true"
-    >notifications</mat-icon
-  >
+  <mat-icon aria-hidden="true">notifications</mat-icon>
 </button>
 <span class="visually-hidden" aria-live="polite">
   {{ store.unreadCount() }} unread notifications
 </span>
 
-<mat-menu #panel="matMenu" xPosition="before" class="notification-panel">
-  <div class="panel">
-    <h2 class="title">Notifications</h2>
+<ng-template
+  cdkConnectedOverlay
+  [cdkConnectedOverlayOrigin]="origin"
+  [cdkConnectedOverlayOpen]="open()"
+  [cdkConnectedOverlayPositions]="positions"
+  [cdkConnectedOverlayPush]="true"
+  [cdkConnectedOverlayViewportMargin]="8"
+  [cdkConnectedOverlayHasBackdrop]="true"
+  cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+  (backdropClick)="close()"
+  (overlayKeydown)="$event.key === 'Escape' && close()"
+  (detach)="close(); bell.focus()"
+>
+  <div
+    class="panel"
+    role="dialog"
+    aria-labelledby="notifications-title"
+    cdkTrapFocus
+    [cdkTrapFocusAutoCapture]="true"
+  >
+    <h2 id="notifications-title" class="title" tabindex="-1" cdkFocusInitial>Notifications</h2>
     @switch (store.status()) {
       @case ('loading') {
         <div class="state"><mat-spinner diameter="24" aria-label="Loading notifications" /></div>
@@ -34,7 +54,7 @@
         @if (store.items().length === 0) {
           <p class="state">No notifications</p>
         } @else {
-          <ul class="list">
+          <ul class="list" tabindex="0" aria-label="Recent notifications">
             @for (n of store.items(); track n.id) {
               <li [class.unread]="!n.read">
                 <span class="message">{{ n.message }}</span>
@@ -45,5 +65,8 @@
         }
       }
     }
+    <div class="actions">
+      <button mat-button (click)="close(); bell.focus()">Close</button>
+    </div>
   </div>
-</mat-menu>
+</ng-template>

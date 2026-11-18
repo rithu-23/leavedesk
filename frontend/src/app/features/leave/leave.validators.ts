@@ -37,6 +37,26 @@ export const leaveDatesValidator: ValidatorFn = (
   return null;
 };
 
+/**
+ * Length rule measured after trimming spaces, as the API does (SPEC.md: reason 10–500
+ * characters after trimming). Errors: { tooShort: { min } } or { tooLong: { max } }.
+ */
+export function trimmedLength(min: number, max: number): ValidatorFn {
+  return (control: AbstractControl): ValidationErrors | null => {
+    if (typeof control.value !== 'string' || control.value.length === 0) {
+      return null; // "required" reports an empty field
+    }
+    const length = control.value.trim().length;
+    if (length < min) {
+      return { tooShort: { min } };
+    }
+    if (length > max) {
+      return { tooLong: { max } };
+    }
+    return null;
+  };
+}
+
 /** A reason made only of spaces counts as empty. */
 export const notBlank: ValidatorFn = (control: AbstractControl): ValidationErrors | null =>
   typeof control.value === 'string' && control.value.trim().length === 0 ? { blank: true } : null;

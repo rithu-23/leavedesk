@@ -57,6 +57,12 @@ export class Shell {
     ...(this.auth.isManager() ? [{ path: '/approvals', label: 'Approvals' }] : []),
   ]);
 
+  /** Keyboard users can jump past the toolbar straight to the page content (UI-27). */
+  protected skipToMain(event: Event): void {
+    event.preventDefault();
+    document.getElementById('main')?.focus();
+  }
+
   protected logout(): void {
     this.auth.logout('user');
   }

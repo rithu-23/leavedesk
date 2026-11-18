@@ -1,6 +1,6 @@
 import { FormControl, FormGroup } from '@angular/forms';
 
-import { leaveDatesValidator, notBlank, toIsoDate } from './leave.validators';
+import { leaveDatesValidator, notBlank, toIsoDate, trimmedLength } from './leave.validators';
 
 function group(start: Date | null, end: Date | null, halfDay = false): FormGroup {
   return new FormGroup(
@@ -39,5 +39,19 @@ describe('leave form validators', () => {
 
   it('formats dates as YYYY-MM-DD in local time', () => {
     expect(toIsoDate(new Date(2027, 0, 5))).toBe('2027-01-05');
+  });
+});
+
+describe('trimmedLength', () => {
+  const rule = trimmedLength(10, 500);
+
+  it('measures the reason after trimming spaces, like the API', () => {
+    expect(rule(new FormControl('   trip    '))).toEqual({ tooShort: { min: 10 } });
+    expect(rule(new FormControl('Family trip'))).toBeNull();
+    expect(rule(new FormControl('x'.repeat(501)))).toEqual({ tooLong: { max: 500 } });
+  });
+
+  it('leaves an empty field to the required validator', () => {
+    expect(rule(new FormControl(''))).toBeNull();
   });
 });

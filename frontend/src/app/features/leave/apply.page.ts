@@ -11,10 +11,10 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Router, RouterLink } from '@angular/router';
 
-import { toApiError } from '../../core/api-error';
+import { fieldErrors, toApiError } from '../../core/api-error';
 import { LeaveType } from '../../core/api.types';
 import { LEAVE_TYPES, LeaveTypePipe } from '../../shared/leave-type';
-import { leaveDatesValidator, notBlank, toIsoDate } from './leave.validators';
+import { leaveDatesValidator, notBlank, toIsoDate, trimmedLength } from './leave.validators';
 import { LeaveStore } from './leave.store';
 
 /**
@@ -23,6 +23,19 @@ import { LeaveStore } from './leave.store';
  * fields, so they are a validator on the whole group. Server errors (409/422) appear inline
  * above the Submit button and the user's input is kept.
  */
+/** SPEC.md: the reason is 10–500 characters after trimming spaces. */
+export const REASON_MIN = 10;
+export const REASON_MAX = 500;
+
+/** API field names (snake_case) → form control names. */
+const FIELD_TO_CONTROL: Record<string, string> = {
+  leave_type: 'leaveType',
+  start_date: 'startDate',
+  end_date: 'endDate',
+  half_day: 'halfDay',
+  reason: 'reason',
+};
+
 @Component({
   selector: 'app-apply-page',
   imports: [
@@ -54,12 +67,14 @@ export class ApplyPage {
       startDate: [null as Date | null, Validators.required],
       endDate: [null as Date | null, Validators.required],
       halfDay: [false],
-      reason: ['', [Validators.required, notBlank, Validators.maxLength(500)]],
+      reason: ['', [Validators.required, notBlank, trimmedLength(REASON_MIN, REASON_MAX)]],
     },
     { validators: leaveDatesValidator },
   );
 
   protected readonly leaveTypes = LEAVE_TYPES;
+  protected readonly reasonMin = REASON_MIN;
+  protected readonly reasonMax = REASON_MAX;
   protected readonly submitting = signal(false);
   protected readonly serverError = signal<string | null>(null);
 
@@ -93,8 +108,24 @@ export class ApplyPage {
         },
         error: (err: unknown) => {
           this.submitting.set(false);
-          // 409 OVERLAPPING_LEAVE / INSUFFICIENT_BALANCE and 422 come with a clear message.
-          this.serverError.set(toApiError(err).message);
+          const apiError = toApiError(err);
+          // 422 VALIDATION_ERROR: show each field's message under that field (UI_SPEC §5.3).
+          const unmatched: string[] = [];
+          for (const { field, message } of fieldErrors(apiError)) {
+            const control = this.form.get(FIELD_TO_CONTROL[field] ?? '');
+            if (control) {
+              control.setErrors({ ...control.errors, server: message });
+              control.markAsTouched();
+            } else {
+              unmatched.push(message);
+            }
+          }
+          // 409 OVERLAPPING_LEAVE and 422 INSUFFICIENT_BALANCE come with a clear message.
+          this.serverError.set(
+            fieldErrors(apiError).length > 0 && unmatched.length === 0
+              ? 'Please correct the highlighted fields.'
+              : [apiError.message, ...unmatched].join(' '),
+          );
         },
       });
   }
