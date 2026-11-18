@@ -23,6 +23,29 @@ function isApiErrorBody(body: unknown): body is ApiErrorBody {
   );
 }
 
+/** One entry of a 422 response's details: which field was wrong and why. */
+export interface FieldError {
+  field: string;
+  message: string;
+}
+
+/**
+ * Reads the field errors of a 422 VALIDATION_ERROR: details is a list of {field, message}.
+ * Anything else gives an empty list, so callers can always loop over the result.
+ */
+export function fieldErrors(error: ApiError): FieldError[] {
+  if (!Array.isArray(error.details)) {
+    return [];
+  }
+  return error.details.filter(
+    (d): d is FieldError =>
+      typeof d === 'object' &&
+      d !== null &&
+      typeof (d as FieldError).field === 'string' &&
+      typeof (d as FieldError).message === 'string',
+  );
+}
+
 /** Turns anything thrown by HttpClient into an ApiError. Never throws. */
 export function toApiError(err: unknown): ApiError {
   if (err instanceof HttpErrorResponse) {

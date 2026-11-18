@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { render, screen } from '@testing-library/angular';
+import { render, screen, waitFor } from '@testing-library/angular';
 import userEvent from '@testing-library/user-event';
 
 import { NotificationItem } from '../../core/api.types';
@@ -51,7 +51,7 @@ describe('NotificationBell', () => {
       note('N-4', true),
     ]);
 
-    const bell = await screen.findByRole('button', { name: 'Notifications, 3 unread' });
+    const bell = await screen.findByRole('button', { name: 'Notifications 3 unread' });
     expect(bell.textContent).toContain('3');
     expect(screen.getByText('3 unread notifications')).toBeTruthy();
   });
@@ -59,22 +59,35 @@ describe('NotificationBell', () => {
   it('opening the panel lists notifications and marks them read (UI-23)', async () => {
     const { http, user } = await renderBell([note('N-1', false)]);
 
-    await user.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }));
+    await user.click(await screen.findByRole('button', { name: 'Notifications 1 unread' }));
     expect(await screen.findByText('Your leave N-1 was approved')).toBeTruthy();
 
     http.expectOne('/api/notifications/read-all').flush({ updated: 1 });
-    expect(await screen.findByRole('button', { name: 'Notifications, 0 unread' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Notifications 0 unread' })).toBeTruthy();
+  });
+
+  it('opens as a dialog and Close puts it away (UI-27)', async () => {
+    const { user } = await renderBell([note('N-1', true)]);
+    const bell = await screen.findByRole('button', { name: 'Notifications 0 unread' });
+    expect(bell.getAttribute('aria-expanded')).toBe('false');
+
+    await user.click(bell);
+    expect(await screen.findByRole('dialog', { name: 'Notifications' })).toBeTruthy();
+    expect(bell.getAttribute('aria-expanded')).toBe('true');
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('shows "No notifications" when the list is empty (UI-24)', async () => {
     const { user } = await renderBell([]);
-    await user.click(await screen.findByRole('button', { name: 'Notifications, 0 unread' }));
+    await user.click(await screen.findByRole('button', { name: 'Notifications 0 unread' }));
     expect(await screen.findByText('No notifications')).toBeTruthy();
   });
 
   it('shows an error with Retry when loading fails (UI-24)', async () => {
     const { user } = await renderBell('error');
-    await user.click(await screen.findByRole('button', { name: 'Notifications, 0 unread' }));
+    await user.click(await screen.findByRole('button', { name: 'Notifications 0 unread' }));
     expect(await screen.findByText("Couldn't load notifications")).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
   });

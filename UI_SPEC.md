@@ -1,6 +1,6 @@
 # LeaveDesk — UI Specification (Capstone 4)
 
-**Version:** 1.4 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
+**Version:** 1.5 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
 
 This document describes the Angular web app that sits on top of the LeaveDesk API: its screens, what each screen shows in every state, and the acceptance criteria (Given/When/Then) that the tests check. It is written before any frontend code, in line with Spec-Driven Development.
 
@@ -116,7 +116,7 @@ All demo users use `DEMO_PASSWORD` from `.env`.
 | Start date | Datepicker (MM/DD/YYYY) | Required |
 | End date | Datepicker (MM/DD/YYYY) | Required; must be on or after the start date |
 | Half day | Checkbox | Allowed only when start and end are the same day |
-| Reason | Textarea | Required, not only spaces, at most 500 characters |
+| Reason | Textarea | Required, 10–500 characters after trimming spaces (SPEC.md), with a live character count |
 
 - Cross-field errors (end before start, half day on a multi-day range) appear under the End date / Half day fields as soon as both values are present.
 - Dates are sent as `YYYY-MM-DD` in local time (no time-zone shift).
@@ -125,7 +125,7 @@ All demo users use `DEMO_PASSWORD` from `.env`.
 - Server errors are shown **inline, above the Submit button**, using the API's `error.message`:
   - 409 `OVERLAPPING_LEAVE` → the overlap message.
   - 422 `INSUFFICIENT_BALANCE` → the balance message.
-  - 422 validation → the message, plus field-level messages from `error.details` where a field can be matched.
+  - 422 `VALIDATION_ERROR` → each entry of `error.details` (`{field, message}`) is shown under the matching field (`reason`, `start_date`, `end_date`, …) and the box says "Please correct the highlighted fields."; unmatched entries are listed in the box.
 - The form keeps the user's input after an error.
 
 ### 5.4 Manager approvals (lazy-loaded)
@@ -142,7 +142,7 @@ All demo users use `DEMO_PASSWORD` from `.env`.
 - **On sign-in** the store loads `GET /api/notifications?limit=20` and opens `EventSource('/api/notifications/stream?access_token={jwt}')`. (EventSource cannot send headers, so the token goes in the query string; see §9.)
 - **On each `notification` event** (`submitted`, `approved`, `rejected` or `cancelled`) the new item is added to the top of the list and a snackbar shows its message for 5 seconds with a **View** action that opens the panel. For every event except `submitted`, the leave store and balance also reload, so the employee's screen updates without a refresh.
 - If the browser gives up on the stream (for example after a server restart), it is reopened after 10 seconds while the user is still signed in.
-- **Opening the panel** shows the 20 most recent notifications (newest first, unread in bold) and calls `POST /api/notifications/read-all` if anything is unread; items then show as read.
+- **Opening the panel** shows the 20 most recent notifications (newest first, unread in bold) and calls `POST /api/notifications/read-all` if anything is unread; items then show as read. The panel is a popup anchored to the bell with `role="dialog"`: focus moves into it, Escape, Close or a click outside closes it, and focus returns to the bell. It stays inside the screen on a 375 px phone.
 - **On sign-out or token expiry** the stream is closed and the store is cleared.
 
 ## 6. States on every list
@@ -175,7 +175,9 @@ The `request_id` is logged to the browser console for debugging, never shown as 
 
 - Every form control has a visible `<mat-label>`; error messages are linked to their fields by Material (`aria-describedby`).
 - Everything works with the keyboard: Tab order follows the visual order, dialogs trap focus and close on Escape, focus returns to the button that opened them.
-- The bell is a `<button>` with `aria-label="Notifications, {n} unread"`. A visually hidden `aria-live="polite"` region announces "{n} unread notifications" when the count changes.
+- The bell is a `<button>` with `aria-label="Notifications {n} unread"` and `aria-expanded`. A visually hidden `aria-live="polite"` region announces "{n} unread notifications" when the count changes.
+- A "Skip to main content" link is the first thing Tab reaches on every signed-in page.
+- Checked with axe-core (WCAG 2.1 A and AA rules) on every screen, dialog and panel at 1280 px and 375 px: no violations.
 - Status chips use text, not colour alone.
 - Layouts are mobile-first with CSS Grid/Flexbox. At **375 px** wide: no horizontal page scroll, toolbar links collapse into a menu, forms are single-column, dialogs are full width.
 
@@ -227,7 +229,7 @@ IDs are referenced by the tests (`UI-n`).
 
 ### Notifications
 
-- **UI-21 Unread count.** Given the notification store holds 3 unread and 2 read items, then the bell badge shows 3 and its accessible name is "Notifications, 3 unread"; with 0 unread the badge is hidden.
+- **UI-21 Unread count.** Given the notification store holds 3 unread and 2 read items, then the bell badge shows 3 and its accessible name is "Notifications 3 unread"; with 0 unread the badge is hidden.
 - **UI-22 Live notification.** Given Ana is signed in, when Mo approves her request, then within a few seconds a snackbar shows the approval message, the badge count goes up, and her balance and table reload without a page refresh.
 - **UI-23 Mark read.** Given unread notifications, when the panel opens, then `POST /api/notifications/read-all` is sent and the badge goes to 0.
 - **UI-24 Panel states.** Given the panel, then it shows a spinner while loading, "No notifications" when the list is empty, and an error with Retry when loading fails.
@@ -297,3 +299,4 @@ Rules: features may import from `core/` and `shared/`, never from each other (th
 | 1.2 | 2026-11-17 | Leave types are ANNUAL, SICK and **CASUAL** (the Capstone 4 handoff listed only two; CASUAL exists since Capstone 1 and in the database). All labels come from one typed map; unknown codes are shown as-is. Found during manual testing: CASUAL rows were labelled "Sick". |
 | 1.3 | 2026-11-17 | Checked against the backend code: §5.4 and UI-17, the pending list also contains the manager's own requests, so the screen filters them out (self-approval is refused by the API) and loads up to 100 without a paginator; INSUFFICIENT_BALANCE is 422, not 409 (§5.3, UI-16); 409 codes named (§5.4). |
 | 1.4 | 2026-11-17 | §5.5: event names from the backend (`submitted`, `approved`, `rejected`, `cancelled`); unread count is over the 20 most recent; the stream reconnects after 10 s if the browser gives up. Verified end to end in a real browser against the API. |
+| 1.5 | 2026-11-17 | Step 7 (layout and accessibility): reason is 10–500 characters after trimming, as in SPEC.md (§5.3); 422 field errors shown under their fields; notification panel is an anchored `role="dialog"` popup instead of a menu (axe: a menu must contain menu items); bell label "Notifications {n} unread"; skip link; axe-core result recorded (§8). |

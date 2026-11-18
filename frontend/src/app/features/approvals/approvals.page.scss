@@ -45,9 +45,34 @@ table {
   text-align: center;
 }
 
-// Below 600 px the Reason column is hidden so the table fits a phone (UI-26).
+// Below 600 px the Reason column is hidden and cells get less padding, so the table fits a
+// 375 px phone (UI-26).
 @media (max-width: 599px) {
   .mat-column-reason {
     display: none;
+  }
+
+  .mat-mdc-header-cell,
+  .mat-mdc-cell {
+    padding: 0 6px;
+  }
+
+  .mat-mdc-header-cell:first-child,
+  .mat-mdc-cell:first-child {
+    padding-left: 0;
+  }
+
+  // Approve above Reject instead of side by side.
+  .actions {
+    padding: 6px 0;
+  }
+
+  .actions button {
+    display: flex;
+    width: 100%;
+  }
+
+  .actions button + button {
+    margin: 6px 0 0;
   }
 }

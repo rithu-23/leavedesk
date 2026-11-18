@@ -19,6 +19,8 @@
       <mat-datepicker #startPicker />
       @if (form.controls.startDate.hasError('required')) {
         <mat-error>Start date is required</mat-error>
+      } @else if (form.controls.startDate.hasError('server')) {
+        <mat-error>{{ form.controls.startDate.getError('server') }}</mat-error>
       }
     </mat-form-field>
 
@@ -30,6 +32,8 @@
       <mat-datepicker #endPicker />
       @if (form.controls.endDate.hasError('required')) {
         <mat-error>End date is required</mat-error>
+      } @else if (form.controls.endDate.hasError('server')) {
+        <mat-error>{{ form.controls.endDate.getError('server') }}</mat-error>
       }
     </mat-form-field>
   </div>
@@ -45,9 +49,17 @@
 
   <mat-form-field appearance="outline">
     <mat-label>Reason</mat-label>
-    <textarea matInput formControlName="reason" rows="3" maxlength="500"></textarea>
+    <textarea matInput formControlName="reason" rows="3" [attr.maxlength]="reasonMax"></textarea>
+    <mat-hint align="start">{{ reasonMin }}–{{ reasonMax }} characters</mat-hint>
+    <mat-hint align="end"
+      >{{ form.controls.reason.value?.trim()?.length ?? 0 }} / {{ reasonMax }}</mat-hint
+    >
     @if (form.controls.reason.hasError('required') || form.controls.reason.hasError('blank')) {
       <mat-error>Reason is required</mat-error>
+    } @else if (form.controls.reason.hasError('tooShort')) {
+      <mat-error>Reason must be at least {{ reasonMin }} characters</mat-error>
+    } @else if (form.controls.reason.hasError('server')) {
+      <mat-error>{{ form.controls.reason.getError('server') }}</mat-error>
     }
   </mat-form-field>
 

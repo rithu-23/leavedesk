@@ -56,6 +56,34 @@ describe('ApplyPage', () => {
     });
   });
 
+  it('requires a reason of at least 10 characters, like the API', async () => {
+    const { fill, submit } = await renderApply();
+    await fill('01/12/2027', '01/12/2027', 'Trip');
+
+    expect(await screen.findByText('Reason must be at least 10 characters')).toBeTruthy();
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('shows a 422 field error under the matching field', async () => {
+    const { user, fill, http, submit } = await renderApply();
+    await fill('01/12/2027', '01/12/2027');
+    await user.click(submit());
+
+    http.expectOne('/api/leave-requests').flush(
+      {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'The request is invalid.',
+          details: [{ field: 'reason', message: 'String should have at least 10 characters' }],
+        },
+      },
+      { status: 422, statusText: 'Unprocessable Entity' },
+    );
+
+    expect(await screen.findByText('String should have at least 10 characters')).toBeTruthy();
+    expect(screen.getByText('Please correct the highlighted fields.')).toBeTruthy();
+  });
+
   it('shows the 409 overlap message inline and keeps the input (UI-15)', async () => {
     const { user, fill, http, submit } = await renderApply();
     await fill('01/12/2027', '01/13/2027');
