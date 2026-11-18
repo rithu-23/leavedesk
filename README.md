@@ -4,13 +4,14 @@ LeaveDesk is an employee leave-management app, built step by step during the AYP
 
 - **Day 1:** a specification (`SPEC.md`) and a plain-Python domain package with the leave rules.
 - **Day 2:** a tested REST API with FastAPI (`API_SPEC.md`), running in Docker.
-- **Day 3 (current):** storage on PostgreSQL with SQLAlchemy 2 and Alembic (`SCHEMA.md`).
-- **Day 4:** an Angular front end.
+- **Day 3:** storage on PostgreSQL with SQLAlchemy 2 and Alembic (`SCHEMA.md`).
+- **Day 4 (current):** an Angular web app (`UI_SPEC.md`), running in Docker behind nginx.
 
 ## Requirements
 
 - Python 3.12 or newer, Git
 - Docker Desktop (for `docker compose`)
+- Node.js 22 or 24 and the Angular CLI (`npm install -g @angular/cli`), for working on the web app
 
 ## Quick start with Docker
 
@@ -18,11 +19,12 @@ LeaveDesk is an employee leave-management app, built step by step during the AYP
 git clone https://github.com/rithu-23/leavedesk.git
 cd leavedesk
 cp .env.example .env          # then replace every value in .env
-docker compose up --build
+docker compose up -d --build --wait
 ```
 
-Open http://localhost:8000/docs, click **Authorize** and sign in as `ana@leavedesk.test`,
-`mo@leavedesk.test` (manager) or `lee@leavedesk.test` (manager) with the `DEMO_PASSWORD` from `.env`.
+Open **http://localhost:8080** for the web app, or http://localhost:8000/docs for the API (click
+**Authorize**). Sign in as `ana@leavedesk.test` (employee), `mo@leavedesk.test` (manager) or
+`lee@leavedesk.test` (manager) with the `DEMO_PASSWORD` from `.env`.
 
 ## Local setup (macOS / Linux)
 
@@ -78,6 +80,34 @@ without it, the in-memory repository. `python -m pytest` runs the suite in memor
 `conftest.py` migrates that database once and empties its tables before each test, and refuses to
 run against any database whose name does not end in `_test`.
 
+## Web app (Capstone 4)
+
+The Angular app lives in `frontend/` (Angular 22: standalone components, signals, Angular
+Material, Vitest, Playwright). The browser only ever calls `/api/...`: in development the Angular
+dev server forwards it to `localhost:8000` (`frontend/proxy.conf.json`); in Docker, nginx forwards
+it to the `api` service (`frontend/nginx.conf`). So the API needs no CORS settings.
+
+Work on it with the API running on port 8000 (Docker, or `uvicorn` as above):
+
+```bash
+cd frontend
+npm install
+npm start                      # http://localhost:4200, reloads on every change
+```
+
+| Task (run in `frontend/`) | Command |
+|---|---|
+| Unit tests (Vitest + Angular Testing Library, HTTP mocked) | `npm test` |
+| Lint (ESLint, including template accessibility rules) | `npm run lint` |
+| Format check / fix (Prettier) | `npm run format:check` / `npm run format` |
+| Production build | `npm run build` |
+| End-to-end and accessibility tests (needs `docker compose up -d --build --wait`) | `npm run e2e` |
+| First time only: Playwright's browser | `npx playwright install chromium` |
+| Open the last Playwright report (screenshots and traces of failures) | `npx playwright show-report` |
+
+Each successful end-to-end run uses one day of Ana's annual leave. To start again from the demo
+data: `docker compose down -v && docker compose up -d --build --wait`.
+
 ## Project structure
 
 | Path | What it holds |
@@ -95,9 +125,15 @@ run against any database whose name does not end in `_test`.
 | `leavedesk/demo.py` | Day 1 demo of the happy path and every edge case |
 | `tests/` | Domain tests; `tests/api/` holds the API tests; `tests/db/` needs PostgreSQL |
 | `conftest.py`, `scripts/pytest-postgres.sh` | Run the whole suite on the PostgreSQL test database |
-| `SPEC.md`, `API_SPEC.md`, `SCHEMA.md`, `PERF.md` | Specifications, acceptance criteria, the database design and the index proofs |
+| `frontend/src/app/core/` | Angular: API types, error helper, auth service, JWT interceptor, route guards |
+| `frontend/src/app/features/` | Angular features: `auth` (login), `leave` (store, My leave, Apply), `approvals` (lazy, managers only), `notifications` (bell, SSE store) |
+| `frontend/src/app/shared/`, `frontend/src/app/layout/` | Reusable UI (confirm dialog, status chip, leave-type labels); the toolbar shell |
+| `frontend/e2e/`, `frontend/playwright.config.ts` | Playwright end-to-end and accessibility tests |
+| `frontend/Dockerfile`, `frontend/nginx.conf` | Web image: Node build, nginx serve and `/api` forwarding |
+| `SPEC.md`, `API_SPEC.md`, `SCHEMA.md`, `PERF.md`, `UI_SPEC.md` | Specifications, acceptance criteria, the database design, the index proofs and the web app spec |
+| `DEMO.md` | Script for the final demo |
 | `AI_NOTES.md` | Log of AI assistance and what was checked or fixed |
-| `Dockerfile`, `docker-compose.yml` | Container image and the `db`, `migrate`, `api` and `worker` services |
+| `Dockerfile`, `docker-compose.yml` | API image and the `db`, `migrate`, `api`, `worker` and `web` services |
 | `.env.example` | Every setting the app needs, with placeholder values |
 | `requirements.txt`, `requirements-dev.txt` | Runtime libraries; test and lint tools |
 | `pyproject.toml` | pytest and Ruff settings |

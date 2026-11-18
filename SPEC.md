@@ -1,8 +1,8 @@
 # LeaveDesk — Specification
 
-**Version:** 1.4 (Capstone 3) · **Status:** Draft · **Author:** Rithu
+**Version:** 1.5 (Capstone 4) · **Status:** Draft · **Author:** Rithu
 
-Companion documents: `API_SPEC.md` (REST contract) and `SCHEMA.md` (database design).
+Companion documents: `API_SPEC.md` (REST contract), `SCHEMA.md` (database design) and `UI_SPEC.md` (web app).
 
 ---
 
@@ -520,3 +520,4 @@ without going through LeaveService, to prove the database itself enforces the ru
 | 1.2 | 2026-11-12 | Capstone 2: repository gained `get_notification`, `save_notification` and `list_employees`; new `Inbox` (list unread first, mark read, mark all read). Leave rules unchanged. |
 | 1.3 | 2026-11-16 | Capstone 3: scope 2.3–2.4; BR-8 audit rows; new BR-9 to BR-13; three new errors; section 12 (FR-12 to FR-18, DB-1 to DB-34); task breakdown and definition of done for Capstone 3. Database design moved to `SCHEMA.md`. Header version corrected (it still said 1.0). |
 | 1.4 | 2026-11-16 | DB-16 names the demo switch `LEAVEDESK_DEMO_NO_LOCKS` and what the unsafe repository does. |
+| 1.5 | 2026-11-17 | Capstone 4: the Angular web app is specified in `UI_SPEC.md` (v1.7). No leave rule changed. Building it checked the UI against this spec rather than a summary: three leave types (Annual, Sick, Casual), reason 10–500 characters after trimming, and a manager's pending list that includes their own requests (which BR-6 forbids them to approve). |

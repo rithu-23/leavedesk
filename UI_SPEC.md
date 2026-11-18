@@ -1,6 +1,6 @@
 # LeaveDesk — UI Specification (Capstone 4)
 
-**Version:** 1.7 · **Status:** approved for build · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
+**Version:** 1.8 · **Status:** built (Capstone 4 complete) · **Builds on:** SPEC.md v1.4, API_SPEC.md v1.1, SCHEMA.md v1.4
 
 This document describes the Angular web app that sits on top of the LeaveDesk API: its screens, what each screen shows in every state, and the acceptance criteria (Given/When/Then) that the tests check. It is written before any frontend code, in line with Spec-Driven Development.
 
@@ -311,3 +311,4 @@ Rules: features may import from `core/` and `shared/`, never from each other (th
 | 1.5 | 2026-11-17 | Step 7 (layout and accessibility): reason is 10–500 characters after trimming, as in SPEC.md (§5.3); 422 field errors shown under their fields; notification panel is an anchored `role="dialog"` popup instead of a menu (axe: a menu must contain menu items); bell label "Notifications {n} unread"; skip link; axe-core result recorded (§8). |
 | 1.6 | 2026-11-17 | Step 8 (Docker): `web` service (Node build, nginx serve) on port 8080; §3 records SSE settings, no token in access logs, SPA fallback, caching, and no font inlining at build time. Initial bundle warning budget raised to 700 kB raw (137 kB transferred with gzip). |
 | 1.7 | 2026-11-17 | Step 9 (Playwright): §11 describes the E2E and accessibility tests as built (random future Monday instead of resetting data before every run; password from `.env`). UI-6: a signed-out visit to `/approvals` now returns there after sign-in (the E2E test found it went to `/leave`). |
+| 1.8 | 2026-11-17 | Step 10: status set to built; README, SPEC.md v1.5, AI_NOTES entries 19–27 and DEMO.md added. |
