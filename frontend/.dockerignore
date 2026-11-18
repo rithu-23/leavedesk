@@ -1,0 +1,8 @@
+# Never send these to Docker when building the web image.
+node_modules
+dist
+.angular
+.vscode
+coverage
+playwright-report
+test-results
